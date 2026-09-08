@@ -13,7 +13,8 @@ psycopg[binary]>=3.2.0
 
 # 认证
 python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4
+# 直接使用 bcrypt 官方 API：passlib 已停止维护，且与 bcrypt>=4.1 不兼容
+bcrypt>=4.1.0
 
 # 缓存
 redis>=5.1.0

@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     LLM_MODEL: str = "gpt-4o-mini"
 
+    # ===== 对话 =====
+    # 每次请求携带的历史消息条数上限（防止长对话导致 token 超限 / 成本失控）
+    MAX_HISTORY_MESSAGES: int = 20
+
     # ===== 嵌入模型 =====
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIM: int = 1536

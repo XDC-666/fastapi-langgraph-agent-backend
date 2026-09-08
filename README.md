@@ -13,9 +13,10 @@
 - 🔐 **JWT 用户认证**：注册 / 登录 / 获取当前用户
 - 💬 **多轮对话**：基于 LangGraph 的 Agent 工作流，自动维护对话历史
 - 🛠️ **工具调用**：内置计算器、网络搜索工具，模型可自主调用（ReAct 范式）
-- ⚡ **流式输出**：SSE 逐 token 返回，前端实时渲染
+- ⚡ **流式输出**：SSE 逐 token 返回（LangGraph `stream_mode="messages"`），前端实时渲染
 - 📚 **RAG 知识库**：上传 PDF / Word / Markdown / TXT，自动切分 + 向量化 + 语义检索
-- 🗄️ **PostgreSQL + Redis**：关系型持久化 + 缓存/限流
+- 🗄️ **PostgreSQL + Redis**：关系型持久化 + 缓存（Redis 客户端已封装，可作限流接入点）
+- 🧠 **对话上下文窗口**：只携带最近 N 条历史，避免长对话撑爆上下文 / 成本失控
 - 🐳 **Docker Compose 一键部署**
 
 ---
@@ -28,7 +29,7 @@
 | Agent 编排 | LangChain + LangGraph |
 | 数据库 | PostgreSQL 16（SQLAlchemy 2.0 ORM） |
 | 缓存 | Redis 7 |
-| 认证 | python-jose (JWT) + passlib (bcrypt) |
+| 认证 | python-jose (JWT) + bcrypt（直接使用官方 API） |
 | 向量库 | Chroma（本地持久化） |
 | 嵌入/对话 | OpenAI / DeepSeek / 通义千问 兼容接口 |
 | 部署 | Docker + Docker Compose |

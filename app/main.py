@@ -12,15 +12,17 @@ from app.database import Base, engine
 from app.models import Conversation, Message, User  # noqa: F401 确保模型被注册
 from app.routers import auth, chat, conversations, health, knowledge
 from app.utils.cache import redis_client
+from app.utils.logging import setup_logging
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logging("DEBUG" if settings.DEBUG else "INFO")
     # 开发环境自动建表
     Base.metadata.create_all(bind=engine)
     yield
-    # 关闭时释放 Redis 连接
-    await redis_client.close()
+    # 关闭时释放 Redis 连接（redis-py 5.0+ 推荐 aclose）
+    await redis_client.aclose()
 
 
 app = FastAPI(

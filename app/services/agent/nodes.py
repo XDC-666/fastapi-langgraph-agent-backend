@@ -36,9 +36,13 @@ def get_llm_with_tools():
     return _llm_with_tools
 
 
-def agent_node(state):
-    """agent 节点：把当前消息列表交给大模型，得到下一条消息（可能含工具调用）。"""
-    response = get_llm_with_tools().invoke(state["messages"])
+async def agent_node(state):
+    """agent 节点：把当前消息列表交给大模型，得到下一条消息（可能含工具调用）。
+
+    使用异步调用（ainvoke），让上层 `astream(stream_mode="messages")`
+    能通过回调捕获到 token 级别的增量，实现真正的逐字流式输出。
+    """
+    response = await get_llm_with_tools().ainvoke(state["messages"])
     return {"messages": [response]}
 
 

@@ -1,9 +1,14 @@
 """对话业务逻辑：会话管理、历史加载、调用 Agent、持久化。"""
+import logging
+
 from langchain_core.messages import AIMessage, HumanMessage
 
+from app.config import settings
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.services.agent.graph import build_graph
+
+logger = logging.getLogger(__name__)
 
 # 编译后的图做全局缓存，避免每次请求重复编译
 _agent_graph = None
@@ -32,15 +37,22 @@ def get_or_create_conversation(db, user_id: int, conversation_id: int | None) ->
 
 
 def build_history_messages(db, conversation_id: int) -> list:
-    """从数据库加载该会话历史，转为 LangChain 消息对象。"""
+    """从数据库加载该会话最近的历史，转为 LangChain 消息对象。
+
+    只取最近 `MAX_HISTORY_MESSAGES` 条：长对话若全量携带会迅速耗尽上下文窗口，
+    并显著抬高 token 成本。生产环境更严谨的做法是按 token 数裁剪或做摘要。
+    """
+    limit = settings.MAX_HISTORY_MESSAGES
     rows = (
         db.query(Message)
         .filter(Message.conversation_id == conversation_id)
-        .order_by(Message.id)
+        .order_by(Message.id.desc())
+        .limit(limit)
         .all()
     )
     messages = []
-    for m in rows:
+    # 上面按 id 倒序取，这里反转回正常时间顺序
+    for m in reversed(rows):
         if m.role == "user":
             messages.append(HumanMessage(content=m.content))
         else:
@@ -81,4 +93,5 @@ def run_chat(db, user_id: int, message: str, conversation_id: int | None, use_kn
     db.add(Message(conversation_id=conv.id, role="user", content=message))
     db.add(Message(conversation_id=conv.id, role="assistant", content=reply))
     db.commit()
+    logger.info("对话完成 conversation_id=%s user_id=%s", conv.id, user_id)
     return conv.id, reply

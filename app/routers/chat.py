@@ -1,7 +1,8 @@
 """对话路由：非流式 / 流式（SSE）。"""
 import json
+import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -12,6 +13,8 @@ from app.models.message import Message
 from app.models.user import User
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.chat_service import assemble_input, get_agent_graph, run_chat
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix=f"{settings.API_V1_PREFIX}", tags=["chat"])
 
@@ -56,18 +59,19 @@ async def chat_stream(
         graph = get_agent_graph()
         full_reply = ""
         try:
-            async for step in graph.astream({"messages": lang_messages}, stream_mode="updates"):
-                for node, update in step.items():
-                    if node == "agent":
-                        msg = update["messages"][-1]
-                        if (
-                            hasattr(msg, "content")
-                            and isinstance(msg.content, str)
-                            and msg.content
-                        ):
-                            full_reply += msg.content
-                            yield f"data: {json.dumps({'delta': msg.content}, ensure_ascii=False)}\n\n"
+            # stream_mode="messages" 会产出 token 级增量 (chunk, metadata)
+            async for chunk, metadata in graph.astream(
+                {"messages": lang_messages}, stream_mode="messages"
+            ):
+                # 只取 agent 节点产生的文本增量，过滤工具调用等中间产物
+                if metadata.get("langgraph_node") != "agent":
+                    continue
+                text = getattr(chunk, "content", None)
+                if isinstance(text, str) and text:
+                    full_reply += text
+                    yield f"data: {json.dumps({'delta': text}, ensure_ascii=False)}\n\n"
         except Exception as exc:  # noqa: BLE001
+            logger.exception("流式对话失败")
             yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
             return
 
