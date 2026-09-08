@@ -28,6 +28,8 @@ dependencies = [
 [tool.pytest.ini_options]
 # 让 async def 测试自动被识别，无需逐个打 @pytest.mark.asyncio
 asyncio_mode = "auto"
+# 保证无论用 `pytest` 还是 `python -m pytest`，都能 import 到 app 包
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100
