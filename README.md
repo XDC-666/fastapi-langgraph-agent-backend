@@ -4,6 +4,8 @@
 
 > 本项目为学习 / 面试作品，覆盖现代 AI 后端核心能力：FastAPI 异步服务、LangChain/LangGraph Agent 编排、PostgreSQL 持久化、Redis 缓存、RAG 检索增强生成。
 
+**🌐 简体中文 | [English](./README_EN.md)**
+
 ---
 
 ## ✨ 功能特性
