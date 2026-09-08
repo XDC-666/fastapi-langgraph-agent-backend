@@ -26,8 +26,11 @@ def should_continue(state) -> str:
     return END
 
 
-def build_graph():
-    """编译并返回 Agent 图（Runnable）。"""
+def build_graph(checkpointer=None):
+    """编译并返回 Agent 图（Runnable）。
+
+    checkpointer 提供跨轮 / 跨工具调用的状态保存；不传则为无状态图。
+    """
     graph = StateGraph(AgentState)
     graph.add_node("agent", agent_node)
     graph.add_node("tools", tools_node)
@@ -36,4 +39,4 @@ def build_graph():
     graph.add_conditional_edges("agent", should_continue, {"tools": "tools", END: END})
     graph.add_edge("tools", "agent")
 
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)

@@ -16,12 +16,16 @@
 
 - 🔐 **JWT 用户认证**：注册 / 登录 / 获取当前用户（bcrypt 加盐哈希）
 - 🛡️ **接口限流**：基于 Redis 的固定窗口计数，登录按 IP 防暴力破解、对话按用户防刷成本
+- 🔒 **登录失败锁定**：同一账号连续失败达上限即锁定一段时间（Redis 不可用时自动降级放行）
 - 💬 **多轮对话**：基于 LangGraph 的 Agent 工作流，自动维护对话历史
 - 🛠️ **工具调用**：内置计算器、网络搜索工具，模型可自主调用（ReAct 范式）
 - ⚡ **流式输出**：SSE 逐 token 返回（LangGraph `stream_mode="messages"`），前端实时渲染
 - 📚 **RAG 知识库**：上传 PDF / Word / Markdown / TXT，自动切分 + 向量化 + 语义检索
 - 🗄️ **PostgreSQL + Redis**：关系型持久化 + 缓存 / 限流
 - 🧠 **对话上下文窗口**：只携带最近 N 条历史，避免长对话撑爆上下文 / 成本失控
+- 🧩 **Alembic 数据库迁移**：表结构可演进，改字段不再丢数据（替代裸 `create_all`）
+- 🧠 **LangGraph Checkpointer**：Agent 工作记忆持久化，多轮会话可恢复（可选 SqliteSaver）
+- 📊 **Token 用量统计**：记录每次对话的 prompt/completion token 并估算成本（面试加分项）
 - 🐳 **Docker Compose 一键部署**
 
 ---
@@ -105,6 +109,32 @@ uvicorn app.main:app --reload --port 8000
 
 ---
 
+## 🗄️ 数据库迁移（Alembic）
+
+项目用 **Alembic** 管理表结构演进，不再依赖 `create_all`（后者改表结构会丢数据）。
+
+```bash
+# 安装迁移工具（已在 requirements.txt 中）
+pip install -r requirements.txt
+
+# 开发环境：可用 AUTO_CREATE_TABLES=true 让启动时自动建表，最省事
+# 生产环境：AUTO_CREATE_TABLES=false，然后用迁移：
+
+# 首次启动 / 升级到最新表结构
+alembic upgrade head
+
+# 改了 ORM 模型后，自动生成差异迁移脚本
+alembic revision --autogenerate -m "描述这次变更"
+
+# 查看迁移历史
+alembic history
+```
+
+> 连接串来自 `app.config.settings.DATABASE_URL`，与项目其余部分共用一份配置。
+> Docker Compose 已在服务启动命令里自动执行 `alembic upgrade head`。
+
+---
+
 ## 📡 API 一览
 
 > 完整交互式文档见 `http://localhost:8000/docs`（Swagger UI）。
@@ -119,6 +149,7 @@ uvicorn app.main:app --reload --port 8000
 | GET  | `/api/v1/conversations/{id}/messages` | 会话消息 |
 | POST | `/api/v1/chat` | 非流式对话 |
 | POST | `/api/v1/chat/stream` | 流式对话（SSE） |
+| GET  | `/api/v1/usage/me` | 当前用户 Token 用量与成本汇总 |
 | POST | `/api/v1/knowledge/upload` | 上传知识库文档 |
 | POST | `/api/v1/knowledge/ask` | 知识库检索 |
 | GET  | `/api/v1/health` | 健康检查 |
@@ -153,18 +184,21 @@ fastapi-langgraph-agent-backend/
 │   ├── config.py            # 配置
 │   ├── database.py          # 数据库引擎
 │   ├── dependencies.py      # 依赖注入（当前用户）
-│   ├── models/              # ORM 模型
+│   ├── models/              # ORM 模型（User/Conversation/Message/TokenUsage）
 │   ├── schemas/             # Pydantic 模型
 │   ├── routers/             # API 路由
 │   ├── services/            # 业务逻辑
-│   │   ├── agent/           # LangGraph Agent
+│   │   ├── agent/           # LangGraph Agent（graph / checkpointer）
 │   │   ├── chat_service.py
+│   │   ├── usage_service.py # Token 用量统计
 │   │   └── knowledge_service.py
 │   └── utils/               # 安全 / 缓存工具
+├── alembic/                 # Alembic 迁移脚本
 ├── frontend/index.html      # 简易聊天前端
 ├── docker/                  # Dockerfile
 ├── tests/                   # pytest 测试
 ├── docker-compose.yml
+├── alembic.ini
 ├── requirements.txt
 └── README.md
 ```

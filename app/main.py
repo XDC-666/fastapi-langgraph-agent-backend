@@ -9,8 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import Base, engine
-from app.models import Conversation, Message, User  # noqa: F401 确保模型被注册
-from app.routers import auth, chat, conversations, health, knowledge
+from app.models import Conversation, Message, TokenUsage, User  # noqa: F401 确保模型被注册
+from app.routers import auth, chat, conversations, health, knowledge, usage
 from app.utils.cache import redis_client
 from app.utils.logging import setup_logging
 
@@ -18,8 +18,14 @@ from app.utils.logging import setup_logging
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging("DEBUG" if settings.DEBUG else "INFO")
-    # 开发环境自动建表
-    Base.metadata.create_all(bind=engine)
+    if settings.AUTO_CREATE_TABLES:
+        # 开发/测试环境：用 create_all 一键建表。
+        # 生产环境请把 AUTO_CREATE_TABLES 设为 false，改用 Alembic 迁移
+        # （在项目根目录执行 `alembic upgrade head`），以支持可演进的表结构。
+        Base.metadata.create_all(bind=engine)
+    else:
+        # 即便不开 create_all，也要确保模型已注册（否则后续 ORM 操作会找不到表映射）
+        _ = (Conversation, Message, TokenUsage, User)
     yield
     # 关闭时释放 Redis 连接（redis-py 5.0+ 推荐 aclose）
     await redis_client.aclose()
@@ -50,6 +56,7 @@ app.include_router(auth.router)
 app.include_router(conversations.router)
 app.include_router(chat.router)
 app.include_router(knowledge.router)
+app.include_router(usage.router)
 app.include_router(health.router)
 
 

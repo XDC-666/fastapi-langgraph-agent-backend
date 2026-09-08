@@ -65,11 +65,13 @@ class FakeGraph:
     def __init__(self, chunks=("你", "好", "，", "世界"), reply="你好，世界"):
         self._chunks = list(chunks)
         self._reply = reply
+        # 与真实编译图保持一致：无 checkpointer 属性，prepare_thread 会安全跳过
+        self.checkpointer = None
 
-    def invoke(self, state):
+    def invoke(self, state, config=None):
         return {"messages": [AIMessage(content=self._reply)]}
 
-    async def astream(self, state, stream_mode=None):
+    async def astream(self, state, config=None, stream_mode=None):
         # 模拟 stream_mode="messages"：产出 (chunk, metadata) 元组
         for text in self._chunks:
             yield AIMessageChunk(content=text), {"langgraph_node": "agent"}

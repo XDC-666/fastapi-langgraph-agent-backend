@@ -38,6 +38,8 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/agentdb
       REDIS_URL: redis://redis:6379/0
+      # 生产环境关闭自动建表，改用 Alembic 迁移（下方 command 启动前执行）
+      AUTO_CREATE_TABLES: "false"
       # 安全相关：务必在 .env 中设置强随机 SECRET_KEY，否则 JWT 可被伪造
       SECRET_KEY: ${SECRET_KEY:?请在 .env 中设置 SECRET_KEY}
       REQUIRE_SECRET_KEY: ${REQUIRE_SECRET_KEY:-true}
@@ -45,6 +47,11 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL}
       LLM_MODEL: ${LLM_MODEL}
+      # 可选：开启 Agent 记忆持久化（需 langgraph-checkpoint-sqlite）
+      # CHECKPOINTER_URI: sqlite:////app/data/checkpoints.sqlite
+    # 先用 Alembic 把表结构迁移到最新，再启动服务
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     depends_on:
       postgres:
         condition: service_healthy

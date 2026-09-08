@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     # ===== 数据库 =====
     DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@localhost:5432/agentdb"
 
+    # 启动是否自动建表。开发/测试环境设为 true 用 create_all 最省事；
+    # 生产环境请设为 false，并改用 Alembic 迁移（alembic upgrade head），
+    # 否则改表结构时 create_all 不会去 ALTER 已有表，易引发字段不一致。
+    AUTO_CREATE_TABLES: bool = True
+
     # ===== Redis =====
     REDIS_URL: str = "redis://localhost:6379/0"
 
@@ -44,6 +49,22 @@ class Settings(BaseSettings):
     # ===== 对话 =====
     # 每次请求携带的历史消息条数上限（防止长对话导致 token 超限 / 成本失控）
     MAX_HISTORY_MESSAGES: int = 20
+
+    # ===== LangGraph Checkpointer =====
+    # 留空：使用内存版 MemorySaver（随进程重启丢失，适合开发 / 单实例演示）。
+    # 设为 sqlite:///./data/checkpoints.sqlite 可持久化 Agent 工作记忆（跨重启可恢复），
+    # 需要先额外安装：pip install langgraph-checkpoint-sqlite
+    CHECKPOINTER_URI: str = ""
+
+    # ===== Token 用量统计 =====
+    # 是否在 /usage 接口给已知模型估算成本（美元）。未知模型返回 null。
+    TOKEN_USAGE_COST_ENABLED: bool = True
+
+    # ===== 登录失败锁定 =====
+    # 同一账号（按登录标识）在窗口内失败达到上限即锁定；Redis 不可用时自动降级（不锁定）。
+    LOGIN_MAX_FAILED_ATTEMPTS: int = 5
+    LOGIN_LOCKOUT_MINUTES: int = 15
+    LOGIN_LOCKOUT_WINDOW_MINUTES: int = 15
 
     # ===== 限流（基于 Redis；Redis 不可用时自动降级放行）=====
     RATE_LIMIT_ENABLED: bool = True
