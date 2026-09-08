@@ -1,0 +1,35 @@
+# 依赖
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 环境变量（含密钥，绝不能提交）
+.env
+.env.local
+.env.*.local
+
+# 数据与模型文件
+data/
+*.db
+*.sqlite3
+chroma/
+
+# Python 缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 日志
+*.log
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+
+# 测试覆盖
+htmlcov/
+.coverage

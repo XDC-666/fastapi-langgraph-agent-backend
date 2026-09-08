@@ -1,0 +1,66 @@
+"""应用配置：从环境变量或 .env 文件读取。
+
+使用 pydantic-settings，所有配置集中在一处，方便管理与类型校验。
+"""
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    # ===== 应用 =====
+    PROJECT_NAME: str = "fastapi-langgraph-agent-backend"
+    API_V1_PREFIX: str = "/api/v1"
+    DEBUG: bool = False
+
+    # 允许跨域的前端源（逗号分隔）；生产环境务必改为你的前端域名
+    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+
+    # ===== 安全 =====
+    SECRET_KEY: str = "change-me-to-a-random-secret-string"
+    # 设为 true 时，若 SECRET_KEY 仍为默认占位值则启动报错（防止生产用弱密钥）
+    REQUIRE_SECRET_KEY: bool = False
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 天
+
+    # ===== 数据库 =====
+    DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@localhost:5432/agentdb"
+
+    # ===== Redis =====
+    REDIS_URL: str = "redis://localhost:6379/0"
+
+    # ===== 大模型 API =====
+    OPENAI_API_KEY: str = ""
+    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+    LLM_MODEL: str = "gpt-4o-mini"
+
+    # ===== 嵌入模型 =====
+    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    EMBEDDING_DIM: int = 1536
+
+    # ===== 本地数据目录 =====
+    CHROMA_PERSIST_DIR: str = "./data/chroma"
+    UPLOAD_DIR: str = "./data/uploads"
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """返回全局单例配置。"""
+    s = Settings()
+    # 生产环境强制要求自定义 SECRET_KEY，避免 JWT 被已知默认密钥伪造
+    if s.REQUIRE_SECRET_KEY and s.SECRET_KEY == "change-me-to-a-random-secret-string":
+        raise ValueError(
+            "REQUIRE_SECRET_KEY=true 但 SECRET_KEY 仍为默认占位值，"
+            "请在环境变量 / .env 中设置一个随机强密钥"
+        )
+    return s
+
+
+settings = get_settings()
