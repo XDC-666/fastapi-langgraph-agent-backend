@@ -10,6 +10,8 @@ import os
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test-secret-key-for-pytest-only"
 os.environ["REQUIRE_SECRET_KEY"] = "false"
+# 测试环境无 Redis，关闭限流（否则每个请求都要等 Redis 连接超时）
+os.environ["RATE_LIMIT_ENABLED"] = "false"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

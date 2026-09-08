@@ -3,6 +3,7 @@ import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -13,13 +14,29 @@ from app.models.message import Message
 from app.models.user import User
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.chat_service import assemble_input, get_agent_graph, run_chat
+from app.utils.rate_limit import chat_rate_limit
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix=f"{settings.API_V1_PREFIX}", tags=["chat"])
 
 
-@router.post("/chat", response_model=ChatResponse)
+def persist_messages(
+    db: Session, conversation_id: int, user_content: str, assistant_content: str
+) -> None:
+    """把一轮问答写入数据库。
+
+    同步 SQLAlchemy 会话不能直接 await，因此在 async 端点里由线程池调用本函数，
+    避免阻塞事件循环（这是 FastAPI 中同步 ORM 的标准处理方式）。
+    """
+    db.add(Message(conversation_id=conversation_id, role="user", content=user_content))
+    db.add(
+        Message(conversation_id=conversation_id, role="assistant", content=assistant_content)
+    )
+    db.commit()
+
+
+@router.post("/chat", response_model=ChatResponse, dependencies=[Depends(chat_rate_limit)])
 def chat(
     payload: ChatRequest,
     db: Session = Depends(get_db),
@@ -34,7 +51,9 @@ def chat(
     return ChatResponse(conversation_id=conv_id, reply=reply)
 
 
-@router.post("/chat/stream")
+@router.post(
+    "/chat/stream", dependencies=[Depends(chat_rate_limit)]
+)
 async def chat_stream(
     payload: ChatRequest,
     db: Session = Depends(get_db),
@@ -49,8 +68,14 @@ async def chat_stream(
     """
 
     async def event_generator():
-        conv, lang_messages = assemble_input(
-            db, current_user.id, payload.message, payload.conversation_id, payload.use_knowledge
+        # 同步 ORM 会阻塞事件循环，这里放到线程池执行，保证流式吞吐不受影响
+        conv, lang_messages = await run_in_threadpool(
+            assemble_input,
+            db,
+            current_user.id,
+            payload.message,
+            payload.conversation_id,
+            payload.use_knowledge,
         )
         if conv is None:
             yield f"data: {json.dumps({'error': '会话不存在或无权访问'}, ensure_ascii=False)}\n\n"
@@ -75,10 +100,11 @@ async def chat_stream(
             yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
             return
 
-        # 流结束后落库
-        db.add(Message(conversation_id=conv.id, role="user", content=payload.message))
-        db.add(Message(conversation_id=conv.id, role="assistant", content=full_reply))
-        db.commit()
-        yield f"data: {json.dumps({'done': True, 'conversation_id': conv.id}, ensure_ascii=False)}\n\n"
+        # 流结束后落库，同样放线程池
+        await run_in_threadpool(
+            persist_messages, db, conv.id, payload.message, full_reply
+        )
+        done_payload = {"done": True, "conversation_id": conv.id}
+        yield f"data: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

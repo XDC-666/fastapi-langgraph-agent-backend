@@ -28,7 +28,10 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version="0.1.0",
-    description="基于 FastAPI + LangGraph 的 AI Agent 后端服务，支持多轮对话、工具调用、RAG 知识库与流式输出。",
+    description=(
+        "基于 FastAPI + LangGraph 的 AI Agent 后端服务，"
+        "支持多轮对话、工具调用、RAG 知识库与流式输出。"
+    ),
     lifespan=lifespan,
 )
 

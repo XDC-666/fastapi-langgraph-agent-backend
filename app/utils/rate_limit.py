@@ -1,0 +1,65 @@
+"""基于 Redis 的接口限流。
+
+设计要点：
+- 固定窗口计数：INCR + EXPIRE，简单可靠、开销低。
+- **降级放行**：Redis 不可用时直接放行，绝不让限流组件拖垮主流程
+  （限流是保护性措施，不应成为新的故障点）。
+- 可在配置里用 RATE_LIMIT_ENABLED 一键关闭（例如跑测试时）。
+"""
+import logging
+
+from fastapi import Depends, HTTPException, Request, status
+
+from app.config import settings
+from app.dependencies import get_current_user
+from app.models.user import User
+from app.utils.cache import redis_client
+
+logger = logging.getLogger(__name__)
+
+
+async def is_allowed(key: str, limit: int, window_seconds: int) -> bool:
+    """判断该 key 在当前窗口内是否还有额度。
+
+    返回 True 表示放行。Redis 异常时同样返回 True（降级）。
+    """
+    try:
+        count = await redis_client.incr(key)
+        if count == 1:
+            # 首次计数时才设置过期时间，保证是「固定窗口」而非不断续期
+            await redis_client.expire(key, window_seconds)
+        return count <= limit
+    except Exception:  # noqa: BLE001
+        logger.warning("限流组件不可用（Redis 异常），本次请求放行 key=%s", key)
+        return True
+
+
+def _client_ip(request: Request) -> str:
+    """取客户端 IP。若部署在反向代理后，应改用 X-Forwarded-For。"""
+    return request.client.host if request.client else "unknown"
+
+
+async def login_rate_limit(request: Request) -> None:
+    """登录限流：按 IP，防暴力破解。"""
+    if not settings.RATE_LIMIT_ENABLED:
+        return
+    key = f"rl:login:{_client_ip(request)}"
+    if not await is_allowed(key, settings.RATE_LIMIT_LOGIN_PER_MINUTE, 60):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="登录尝试过于频繁，请稍后再试",
+        )
+
+
+async def chat_rate_limit(
+    request: Request, current_user: User = Depends(get_current_user)
+) -> None:
+    """对话限流：按用户，防刷接口导致 token 成本失控。"""
+    if not settings.RATE_LIMIT_ENABLED:
+        return
+    key = f"rl:chat:{current_user.id}"
+    if not await is_allowed(key, settings.RATE_LIMIT_CHAT_PER_MINUTE, 60):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="对话请求过于频繁，请稍后再试",
+        )

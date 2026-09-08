@@ -22,7 +22,9 @@ def get_agent_graph():
     return _agent_graph
 
 
-def get_or_create_conversation(db, user_id: int, conversation_id: int | None) -> Conversation | None:
+def get_or_create_conversation(
+    db, user_id: int, conversation_id: int | None
+) -> Conversation | None:
     """按 id 取会话，或为用户新建会话；越权/不存在返回 None。"""
     if conversation_id:
         conv = db.get(Conversation, conversation_id)
@@ -60,7 +62,9 @@ def build_history_messages(db, conversation_id: int) -> list:
     return messages
 
 
-def assemble_input(db, user_id: int, message: str, conversation_id: int | None, use_knowledge: bool):
+def assemble_input(
+    db, user_id: int, message: str, conversation_id: int | None, use_knowledge: bool
+):
     """整合会话、历史、用户消息，返回 (conversation, langchain_messages)。"""
     conv = get_or_create_conversation(db, user_id, conversation_id)
     if conv is None:
@@ -81,7 +85,13 @@ def assemble_input(db, user_id: int, message: str, conversation_id: int | None, 
     return conv, history + [user_msg]
 
 
-def run_chat(db, user_id: int, message: str, conversation_id: int | None, use_knowledge: bool = False):
+def run_chat(
+    db,
+    user_id: int,
+    message: str,
+    conversation_id: int | None,
+    use_knowledge: bool = False,
+):
     """非流式对话：返回 (conversation_id, reply)；会话非法返回 (None, 错误信息)。"""
     conv, lang_messages = assemble_input(db, user_id, message, conversation_id, use_knowledge)
     if conv is None:

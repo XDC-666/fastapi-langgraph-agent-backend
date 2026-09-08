@@ -1,7 +1,7 @@
 """Pydantic 数据模型（请求/响应校验）汇总。"""
-from app.schemas.user import UserCreate, UserLogin, UserOut
-from app.schemas.conversation import ConversationCreate, ConversationOut, MessageOut
 from app.schemas.chat import ChatRequest, ChatResponse
+from app.schemas.conversation import ConversationCreate, ConversationOut, MessageOut
+from app.schemas.user import UserCreate, UserLogin, UserOut
 
 __all__ = [
     "UserCreate",

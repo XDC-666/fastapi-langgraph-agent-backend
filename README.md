@@ -1,5 +1,9 @@
 # 🤖 fastapi-langgraph-agent-backend
 
+[![CI](https://github.com/XDC-666/fastapi-langgraph-agent-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/XDC-666/fastapi-langgraph-agent-backend/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 基于 **FastAPI + LangGraph** 的 AI Agent 后端服务。支持多轮对话、工具调用、RAG 知识库问答与流式输出（SSE），可一键 Docker 部署。
 
 > 本项目为学习 / 面试作品，覆盖现代 AI 后端核心能力：FastAPI 异步服务、LangChain/LangGraph Agent 编排、PostgreSQL 持久化、Redis 缓存、RAG 检索增强生成。
@@ -10,12 +14,13 @@
 
 ## ✨ 功能特性
 
-- 🔐 **JWT 用户认证**：注册 / 登录 / 获取当前用户
+- 🔐 **JWT 用户认证**：注册 / 登录 / 获取当前用户（bcrypt 加盐哈希）
+- 🛡️ **接口限流**：基于 Redis 的固定窗口计数，登录按 IP 防暴力破解、对话按用户防刷成本
 - 💬 **多轮对话**：基于 LangGraph 的 Agent 工作流，自动维护对话历史
 - 🛠️ **工具调用**：内置计算器、网络搜索工具，模型可自主调用（ReAct 范式）
 - ⚡ **流式输出**：SSE 逐 token 返回（LangGraph `stream_mode="messages"`），前端实时渲染
 - 📚 **RAG 知识库**：上传 PDF / Word / Markdown / TXT，自动切分 + 向量化 + 语义检索
-- 🗄️ **PostgreSQL + Redis**：关系型持久化 + 缓存（Redis 客户端已封装，可作限流接入点）
+- 🗄️ **PostgreSQL + Redis**：关系型持久化 + 缓存 / 限流
 - 🧠 **对话上下文窗口**：只携带最近 N 条历史，避免长对话撑爆上下文 / 成本失控
 - 🐳 **Docker Compose 一键部署**
 

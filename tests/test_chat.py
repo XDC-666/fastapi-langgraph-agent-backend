@@ -6,10 +6,10 @@
 - 对话历史窗口限制生效（防止长对话 token 超限）
 - 计算器工具的注入 / DoS 防护回归
 """
-from app.services.agent.tools import calculator
-from app.services.chat_service import build_history_messages, run_chat
 from app.models.conversation import Conversation
 from app.models.message import Message
+from app.services.agent.tools import calculator
+from app.services.chat_service import build_history_messages
 from tests.conftest import parse_sse
 
 

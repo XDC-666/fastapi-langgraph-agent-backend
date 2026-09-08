@@ -9,6 +9,7 @@ from app.dependencies import get_current_user
 from app.models.user import User
 from app.schemas.user import UserCreate, UserOut
 from app.services.auth_service import authenticate_user, issue_token, register_user
+from app.utils.rate_limit import login_rate_limit
 
 router = APIRouter(prefix=f"{settings.API_V1_PREFIX}/auth", tags=["auth"])
 
@@ -23,7 +24,7 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
     return user
 
 
-@router.post("/login")
+@router.post("/login", dependencies=[Depends(login_rate_limit)])
 def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
@@ -32,6 +33,8 @@ def login(
 
     使用 OAuth2PasswordRequestForm（username/password），
     便于 Swagger 自带的 Authorize 按钮直接调用。
+
+    已加按 IP 的登录限流，防止密码暴力破解。
     """
     user = authenticate_user(db, form_data.username, form_data.password)
     if user is None:

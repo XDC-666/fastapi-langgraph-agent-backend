@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # 每次请求携带的历史消息条数上限（防止长对话导致 token 超限 / 成本失控）
     MAX_HISTORY_MESSAGES: int = 20
 
+    # ===== 限流（基于 Redis；Redis 不可用时自动降级放行）=====
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_LOGIN_PER_MINUTE: int = 10  # 登录按 IP，防暴力破解
+    RATE_LIMIT_CHAT_PER_MINUTE: int = 30  # 对话按用户，防刷接口导致 token 成本失控
+
     # ===== 嵌入模型 =====
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIM: int = 1536
