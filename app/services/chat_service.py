@@ -98,7 +98,7 @@ def assemble_input(
         # 延迟导入，避免循环依赖
         from app.services.knowledge_service import retrieve_for_query
 
-        context = retrieve_for_query(message)
+        context = retrieve_for_query(message, owner_id=user_id)
         if context:
             user_msg = HumanMessage(
                 content=f"请结合以下知识回答用户问题：\n\n{context}\n\n用户问题：{message}"
