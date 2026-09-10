@@ -8,7 +8,6 @@
 from app.services.chat_service import assemble_input
 from app.utils.rate_limit import _client_ip
 
-
 # ---------- HIGH：跨用户知识库隔离 ----------
 
 def test_chat_knowledge_isolation_per_user(db, monkeypatch):
