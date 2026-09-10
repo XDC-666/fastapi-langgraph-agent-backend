@@ -2,6 +2,8 @@
 
 使用 pydantic-settings，所有配置集中在一处，方便管理与类型校验。
 """
+import logging
+import secrets
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -27,6 +29,10 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-to-a-random-secret-string"
     # 设为 true 时，若 SECRET_KEY 仍为默认占位值则启动报错（防止生产用弱密钥）
     REQUIRE_SECRET_KEY: bool = False
+    # 是否信任反向代理的 X-Forwarded-For 以获取真实客户端 IP。
+    # 仅当确有可信代理（如 Nginx）在前时才设 true；否则攻击者可用伪造的
+    # X-Forwarded-For 绕过基于 IP 的限流。
+    TRUST_PROXY: bool = False
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 天
 
@@ -80,6 +86,9 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./data/uploads"
 
 
+logger = logging.getLogger(__name__)
+
+
 @lru_cache
 def get_settings() -> Settings:
     """返回全局单例配置。"""
@@ -89,6 +98,16 @@ def get_settings() -> Settings:
         raise ValueError(
             "REQUIRE_SECRET_KEY=true 但 SECRET_KEY 仍为默认占位值，"
             "请在环境变量 / .env 中设置一个随机强密钥"
+        )
+    # 兜底：任何环境（含生产）若仍使用可预测的默认占位密钥，立即替换为本次进程
+    # 专用的随机密钥，杜绝「忘记设置 → JWT 被已知字符串伪造」的风险。
+    # 注意：随机密钥仅在进程内有效，重启后旧 token 失效；因此生产仍应通过
+    # 环境变量设置固定强密钥，并将 REQUIRE_SECRET_KEY 设为 true。
+    if s.SECRET_KEY == "change-me-to-a-random-secret-string":
+        s.SECRET_KEY = secrets.token_urlsafe(32)
+        logger.warning(
+            "未显式设置 SECRET_KEY，已生成本次进程专用临时随机密钥（重启后失效）。"
+            "生产环境请通过环境变量设置固定强密钥，并将 REQUIRE_SECRET_KEY 设为 true。"
         )
     return s
 

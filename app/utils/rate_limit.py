@@ -35,7 +35,17 @@ async def is_allowed(key: str, limit: int, window_seconds: int) -> bool:
 
 
 def _client_ip(request: Request) -> str:
-    """取客户端 IP。若部署在反向代理后，应改用 X-Forwarded-For。"""
+    """取客户端 IP。
+
+    仅在显式信任反向代理（settings.TRUST_PROXY=true）时，才采纳
+    X-Forwarded-For 的最左（原始客户端）地址；否则一律使用直连地址，
+    避免攻击者用伪造的 X-Forwarded-For 绕过基于 IP 的限流。
+    """
+    if settings.TRUST_PROXY:
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            # XFF 格式：client, proxy1, proxy2 —— 最左为原始客户端
+            return xff.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
 
 
