@@ -71,6 +71,11 @@ class Settings(BaseSettings):
     RATE_LIMIT_LOGIN_PER_MINUTE: int = 10  # 登录按 IP，防暴力破解
     RATE_LIMIT_CHAT_PER_MINUTE: int = 30  # 对话按用户，防刷接口导致 token 成本失控
 
+    # 是否部署在可信反向代理（Nginx / 负载均衡）之后。
+    # True：_client_ip 取 X-Forwarded-For 最左（原始客户端）地址；
+    # False（默认，安全）：忽略 X-Forwarded-For，防止伪造该头绕过限流或把限流嫁祸他人。
+    TRUST_PROXY: bool = False
+
     # ===== 嵌入模型 =====
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIM: int = 1536

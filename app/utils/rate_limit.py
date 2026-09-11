@@ -35,7 +35,21 @@ async def is_allowed(key: str, limit: int, window_seconds: int) -> bool:
 
 
 def _client_ip(request: Request) -> str:
-    """取客户端 IP。若部署在反向代理后，应改用 X-Forwarded-For。"""
+    """取客户端 IP 用于限流。
+
+    - 直连或无代理：取 request.client.host。
+    - 部署在可信反向代理（Nginx / 负载均衡）之后且 TRUST_PROXY=True 时：
+      取 X-Forwarded-For 最左侧（原始客户端）地址，避免所有请求被记为代理 IP
+      导致限流失效，也避免攻击者伪造 XFF 把限流嫁祸他人。
+    - 不可信（默认）：忽略 X-Forwarded-For，屏蔽伪造头，保证限流基于真实直连 IP。
+    """
+    if settings.TRUST_PROXY:
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            # 最左为原始客户端，其余为逐级代理，不可信
+            client_ip = xff.split(",")[0].strip()
+            if client_ip:
+                return client_ip
     return request.client.host if request.client else "unknown"
 
 
