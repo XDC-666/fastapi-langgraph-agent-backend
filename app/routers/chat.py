@@ -97,7 +97,8 @@ async def chat_stream(
                     usage = merge_token_usage(usage, chunk_usage)
         except Exception:  # noqa: BLE001
             logger.exception("流式对话失败")
-            yield f"data: {json.dumps({'error': '对话处理失败，请稍后重试'}, ensure_ascii=False)}\n\n"
+            error_payload = {"error": "对话处理失败，请稍后重试"}
+            yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
             return
 
         # 流结束后落库（消息 + token 用量），同样放线程池
