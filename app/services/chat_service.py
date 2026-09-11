@@ -1,14 +1,16 @@
 """对话业务逻辑：会话管理、历史加载、调用 Agent、持久化。"""
 import logging
 
+from fastapi.concurrency import run_in_threadpool
 from langchain_core.messages import AIMessage, HumanMessage
 
 from app.config import settings
 from app.models.conversation import Conversation
 from app.models.message import Message
+from app.models.usage import TokenUsage
 from app.services.agent.checkpointer import get_checkpointer
 from app.services.agent.graph import build_graph
-from app.services.usage_service import extract_token_usage, record_token_usage
+from app.services.usage_service import extract_token_usage
 
 logger = logging.getLogger(__name__)
 
@@ -108,32 +110,73 @@ def assemble_input(
     return conv, history + [user_msg], config
 
 
-def run_chat(
+def persist_turn(
+    db,
+    user_id: int,
+    conversation_id: int,
+    user_content: str,
+    assistant_content: str,
+    usage: tuple[int, int, int] | None = None,
+) -> None:
+    """把一轮问答与聚合后的 token 用量一次性写入数据库。"""
+    db.add(Message(conversation_id=conversation_id, role="user", content=user_content))
+    db.add(
+        Message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=assistant_content,
+        )
+    )
+    if usage:
+        db.add(
+            TokenUsage(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                model=settings.LLM_MODEL,
+                prompt_tokens=usage[0],
+                completion_tokens=usage[1],
+                total_tokens=usage[2],
+            )
+        )
+    db.commit()
+
+
+async def run_chat(
     db,
     user_id: int,
     message: str,
     conversation_id: int | None,
     use_knowledge: bool = False,
 ):
-    """非流式对话：返回 (conversation_id, reply)；会话非法返回 (None, 错误信息)。"""
-    conv, lang_messages, config = assemble_input(
-        db, user_id, message, conversation_id, use_knowledge
+    """非流式对话：异步调用 LangGraph，同步 ORM 工作放入线程池。"""
+    conv, lang_messages, config = await run_in_threadpool(
+        assemble_input,
+        db,
+        user_id,
+        message,
+        conversation_id,
+        use_knowledge,
     )
     if conv is None:
         return None, "会话不存在或无权访问"
 
+    conv_id = conv.id
     graph = get_agent_graph()
-    prepare_thread(graph, conv.id)
-    result = graph.invoke({"messages": lang_messages}, config)
+    await run_in_threadpool(prepare_thread, graph, conv_id)
+    result = await graph.ainvoke({"messages": lang_messages}, config)
     reply = result["messages"][-1].content
 
-    # 记录 token 用量（仅当模型返回 usage 时）
-    usage = extract_token_usage(result["messages"][-1])
-    if usage:
-        record_token_usage(db, user_id, conv.id, settings.LLM_MODEL, usage[0], usage[1])
+    # 一轮 Agent 可能因工具调用多次请求模型，因此聚合所有 AIMessage usage。
+    usage = extract_token_usage(*result["messages"])
+    await run_in_threadpool(
+        persist_turn,
+        db,
+        user_id,
+        conv_id,
+        message,
+        reply,
+        usage,
+    )
 
-    db.add(Message(conversation_id=conv.id, role="user", content=message))
-    db.add(Message(conversation_id=conv.id, role="assistant", content=reply))
-    db.commit()
-    logger.info("对话完成 conversation_id=%s user_id=%s", conv.id, user_id)
-    return conv.id, reply
+    logger.info("对话完成 conversation_id=%s user_id=%s", conv_id, user_id)
+    return conv_id, reply

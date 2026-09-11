@@ -80,7 +80,7 @@ docker compose up --build
 
 # 3. Access
 # API docs:   http://localhost:8000/docs
-# Frontend:   open frontend/index.html in a browser (or serve it from any static server)
+# Frontend:   http://localhost:8000/app/ (served by FastAPI on the same origin)
 ```
 
 ### Option 2: Run locally

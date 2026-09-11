@@ -7,7 +7,12 @@ from types import SimpleNamespace
 
 from langchain_core.messages import AIMessage, UsageMetadata
 
-from app.services.usage_service import extract_token_usage, get_usage_summary, record_token_usage
+from app.services.usage_service import (
+    extract_token_usage,
+    get_usage_summary,
+    merge_token_usage,
+    record_token_usage,
+)
 
 
 def test_extract_token_usage_handles_both_field_names():
@@ -65,3 +70,19 @@ def _login(client, username="carol", password="secret123"):
     )
     r = client.post("/api/v1/auth/login", data={"username": username, "password": password})
     return r.json()["access_token"]
+
+
+def test_extract_token_usage_aggregates_multiple_agent_calls():
+    first = SimpleNamespace(
+        usage_metadata={"input_tokens": 10, "output_tokens": 4, "total_tokens": 14}
+    )
+    second = SimpleNamespace(
+        usage_metadata={"input_tokens": 6, "output_tokens": 3, "total_tokens": 9}
+    )
+    assert extract_token_usage(first, second) == (16, 7, 23)
+
+
+def test_merge_token_usage_accumulates_streamed_agent_calls():
+    usage = merge_token_usage(None, (10, 4, 14))
+    usage = merge_token_usage(usage, (6, 3, 9))
+    assert usage == (16, 7, 23)

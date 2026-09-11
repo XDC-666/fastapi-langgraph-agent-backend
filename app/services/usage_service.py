@@ -3,8 +3,8 @@
 为什么需要它：AI 后端的成本 = token 消耗。记录每次对话的 prompt / completion token，
 既能做成本意识（面试加分），也能发现异常刷量。
 
-token 数来源：LangChain 在 LLM 返回里会带上 usage_metadata
-（流式在最后一个 chunk、非流式在最后一条 AIMessage 上）。
+token 数来源：LangChain 在 LLM 返回里会带上 usage_metadata。
+Agent 调用工具时一轮请求可能触发多次 LLM 调用，因此这里累计每次调用的 usage；
 不同版本字段名可能是 prompt_tokens/completion_tokens 或 input_tokens/output_tokens，
 这里统一兼容。
 """
@@ -28,20 +28,45 @@ _MODEL_PRICES_PER_1M: dict[str, tuple[float, float]] = {
 }
 
 
-def extract_token_usage(*messages) -> tuple[int, int, int] | None:
-    """从若干 LangChain 消息里提取 token 用量，取最后一个带 usage 的。
+def merge_token_usage(
+    current: tuple[int, int, int] | None,
+    new: tuple[int, int, int] | None,
+) -> tuple[int, int, int] | None:
+    """合并两段 token usage，用于聚合一轮 Agent 内的多次模型调用。"""
+    if new is None:
+        return current
+    if current is None:
+        return new
+    return (
+        current[0] + new[0],
+        current[1] + new[1],
+        current[2] + new[2],
+    )
 
-    返回 (prompt_tokens, completion_tokens, total_tokens)；取不到返回 None。
+
+def extract_token_usage(*messages) -> tuple[int, int, int] | None:
+    """聚合若干 LangChain 消息上的 token 用量。
+
+    Agent 可能因工具调用在一轮请求里多次调用 LLM，因此不能只取最后一条
+    AIMessage。返回整轮累计的 (prompt_tokens, completion_tokens, total_tokens)；
+    所有消息都没有 usage_metadata 时返回 None。
     """
-    for msg in reversed(messages):
+    usage = None
+    for msg in messages:
         um = getattr(msg, "usage_metadata", None)
         if not um:
             continue
-        prompt = um.get("prompt_tokens") or um.get("input_tokens") or 0
-        completion = um.get("completion_tokens") or um.get("output_tokens") or 0
-        total = um.get("total_tokens") or (prompt + completion)
-        return prompt, completion, total
-    return None
+        prompt = um.get("prompt_tokens")
+        if prompt is None:
+            prompt = um.get("input_tokens", 0)
+        completion = um.get("completion_tokens")
+        if completion is None:
+            completion = um.get("output_tokens", 0)
+        total = um.get("total_tokens")
+        if total is None:
+            total = prompt + completion
+        usage = merge_token_usage(usage, (prompt, completion, total))
+    return usage
 
 
 def record_token_usage(

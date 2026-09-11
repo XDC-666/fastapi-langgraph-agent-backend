@@ -22,6 +22,8 @@ splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 _embeddings = None
 _vector_store = None
 
+SUPPORTED_EXTENSIONS = frozenset({"txt", "md", "pdf", "docx"})
+
 
 def get_embeddings():
     """延迟创建并缓存嵌入模型。"""
@@ -49,9 +51,19 @@ def get_vector_store():
     return _vector_store
 
 
+def validate_filename(filename: str) -> str:
+    """校验知识库文件名并返回小写扩展名。"""
+    if not filename or "." not in filename:
+        raise ValueError("不支持的文件类型，仅支持 txt / md / pdf / docx")
+    ext = filename.rsplit(".", 1)[-1].lower()
+    if ext not in SUPPORTED_EXTENSIONS:
+        raise ValueError(f"不支持的文件类型：{ext}")
+    return ext
+
+
 def parse_file(filename: str, content: bytes) -> str:
     """把上传文件解析为纯文本，支持 txt / md / pdf / docx。"""
-    ext = filename.lower().rsplit(".", 1)[-1]
+    ext = validate_filename(filename)
     if ext in ("txt", "md"):
         return content.decode("utf-8", errors="ignore")
     if ext == "pdf":
@@ -68,25 +80,45 @@ def parse_file(filename: str, content: bytes) -> str:
 
         doc = Document(BytesIO(content))
         return "\n".join(p.text for p in doc.paragraphs)
-    raise ValueError(f"不支持的文件类型：{ext}")
+    raise AssertionError("validated extension must be supported")
 
 
 def add_document(filename: str, content: bytes, owner_id: int) -> int:
-    """解析并向量化一个文档，返回切分块数量。"""
+    """解析并替换用户同名文档的向量块，返回新切分块数量。"""
     text = parse_file(filename, content)
-    chunks = splitter.split_text(text)
+    if not text.strip():
+        raise ValueError("文档内容为空或无法提取文本")
+
+    chunks = [chunk for chunk in splitter.split_text(text) if chunk.strip()]
+    if not chunks:
+        raise ValueError("文档内容为空或无法切分出有效文本")
+
+    vector_store = get_vector_store()
+    # 固定 chunk id 会在新文档块数减少时遗留旧块；先按租户+文件名清理。
+    vector_store.delete(
+        where={
+            "$and": [
+                {"owner_id": {"$eq": owner_id}},
+                {"source": {"$eq": filename}},
+            ]
+        }
+    )
+
     metadatas = [{"source": filename, "owner_id": owner_id} for _ in chunks]
     ids = [f"{owner_id}-{filename}-{i}" for i in range(len(chunks))]
-    get_vector_store().add_texts(chunks, metadatas=metadatas, ids=ids)
+    vector_store.add_texts(chunks, metadatas=metadatas, ids=ids)
     return len(chunks)
 
 
-def retrieve_for_query(query: str, owner_id: int | None = None, k: int = 3) -> str:
-    """检索与 query 最相关的知识片段，拼接为上下文字符串。"""
+def retrieve_for_query(query: str, owner_id: int, k: int = 3) -> str:
+    """检索当前 owner 的相关知识片段；不提供无租户检索入口。"""
+    if not isinstance(owner_id, int) or isinstance(owner_id, bool) or owner_id <= 0:
+        raise ValueError("owner_id 必须是有效的正整数")
     if not query.strip():
         return ""
-    if owner_id is not None:
-        results = get_vector_store().similarity_search(query, k=k, filter={"owner_id": owner_id})
-    else:
-        results = get_vector_store().similarity_search(query, k=k)
+    if k < 1 or k > settings.MAX_KNOWLEDGE_K:
+        raise ValueError(f"k 必须在 1 到 {settings.MAX_KNOWLEDGE_K} 之间")
+    results = get_vector_store().similarity_search(
+        query, k=k, filter={"owner_id": owner_id}
+    )
     return "\n\n".join(doc.page_content for doc in results)

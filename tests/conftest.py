@@ -8,7 +8,7 @@ import os
 
 # 必须在导入 app 之前设置，否则配置会读取开发机的真实环境变量
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
-os.environ["SECRET_KEY"] = "test-secret-key-for-pytest-only"
+os.environ["SECRET_KEY"] = "test-secret-key-for-pytest-only-32-bytes-plus"
 os.environ["REQUIRE_SECRET_KEY"] = "false"
 # 测试环境无 Redis，关闭限流（否则每个请求都要等 Redis 连接超时）
 os.environ["RATE_LIMIT_ENABLED"] = "false"
@@ -68,7 +68,7 @@ class FakeGraph:
         # 与真实编译图保持一致：无 checkpointer 属性，prepare_thread 会安全跳过
         self.checkpointer = None
 
-    def invoke(self, state, config=None):
+    async def ainvoke(self, state, config=None):
         return {"messages": [AIMessage(content=self._reply)]}
 
     async def astream(self, state, config=None, stream_mode=None):

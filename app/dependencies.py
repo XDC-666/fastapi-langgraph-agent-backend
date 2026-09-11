@@ -25,7 +25,13 @@ def get_current_user(
     user_id = decode_access_token(token)
     if user_id is None:
         raise credentials_exception
-    user = db.get(User, int(user_id))
+    try:
+        parsed_user_id = int(user_id)
+    except (TypeError, ValueError):
+        raise credentials_exception from None
+    if parsed_user_id <= 0:
+        raise credentials_exception
+    user = db.get(User, parsed_user_id)
     if user is None:
         raise credentials_exception
     return user

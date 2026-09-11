@@ -90,7 +90,7 @@ docker compose up --build
 
 # 3. 访问
 # API 文档:   http://localhost:8000/docs
-# 前端界面:   把 frontend/index.html 用浏览器打开（或放到任意静态服务器）
+# 前端界面:   http://localhost:8000/app/（由 FastAPI 同源提供）
 ```
 
 ### 方式二：本地运行

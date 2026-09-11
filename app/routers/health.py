@@ -1,5 +1,6 @@
 """健康检查路由：探测数据库与 Redis 是否可用。"""
 from fastapi import APIRouter
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import text
 
 from app.config import settings
@@ -9,17 +10,20 @@ from app.utils.cache import ping
 router = APIRouter(prefix=f"{settings.API_V1_PREFIX}/health", tags=["health"])
 
 
-@router.get("")
-async def health():
-    """返回服务依赖健康状态。"""
-    db_ok = False
+def check_database() -> bool:
+    """同步数据库探针；由 async 路由在线程池调用。"""
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-        db_ok = True
+        return True
     except Exception:  # noqa: BLE001
-        db_ok = False
+        return False
 
+
+@router.get("")
+async def health():
+    """返回服务依赖健康状态，不在事件循环直接执行同步 DB I/O。"""
+    db_ok = await run_in_threadpool(check_database)
     redis_ok = await ping()
 
     return {

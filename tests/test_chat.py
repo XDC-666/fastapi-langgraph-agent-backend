@@ -6,8 +6,11 @@
 - 对话历史窗口限制生效（防止长对话 token 超限）
 - 计算器工具的注入 / DoS 防护回归
 """
+from langchain_core.messages import AIMessage, AIMessageChunk, UsageMetadata
+
 from app.models.conversation import Conversation
 from app.models.message import Message
+from app.models.usage import TokenUsage
 from app.services.agent.tools import calculator
 from app.services.chat_service import build_history_messages
 from tests.conftest import parse_sse
@@ -136,3 +139,123 @@ def test_calculator_blocks_injection_and_dos():
     assert "过大" in calculator.invoke("2**99999999") or \
            "失败" in calculator.invoke("2**99999999") or \
            "不支持" in calculator.invoke("2**99999999")
+
+
+def test_rag_chat_scopes_retrieval_to_current_user(db, monkeypatch):
+    from app.services import knowledge_service
+    from app.services.chat_service import assemble_input
+
+    captured = {}
+
+    def fake_retrieve(query: str, owner_id: int, k: int = 3):
+        captured.update(query=query, owner_id=owner_id, k=k)
+        return "tenant context"
+
+    monkeypatch.setattr(knowledge_service, "retrieve_for_query", fake_retrieve)
+
+    conv, messages, _ = assemble_input(db, 42, "private question", None, True)
+
+    assert conv is not None
+    assert captured == {"query": "private question", "owner_id": 42, "k": 3}
+    assert "tenant context" in messages[-1].content
+
+
+def test_chat_stream_hides_internal_exception(client, db, monkeypatch):
+    token = register_and_login(client, username="streamerr")
+
+    class BrokenGraph:
+        checkpointer = None
+
+        async def astream(self, state, config=None, stream_mode=None):
+            if False:
+                yield None
+            raise RuntimeError("OPENAI_SECRET=/srv/internal/key")
+
+    graph = BrokenGraph()
+    monkeypatch.setattr("app.routers.chat.get_agent_graph", lambda: graph)
+
+    r = client.post(
+        "/api/v1/chat/stream",
+        json={"message": "trigger"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    events = parse_sse(r.text)
+    errors = [event["error"] for event in events if "error" in event]
+    assert errors == ["对话处理失败，请稍后重试"]
+    assert "OPENAI_SECRET" not in r.text
+    assert "/srv/internal/key" not in r.text
+
+
+def test_non_stream_persists_aggregated_usage_across_agent_calls(client, db, monkeypatch):
+    token = register_and_login(client, username="usageagent")
+
+    class MultiCallGraph:
+        checkpointer = None
+
+        async def ainvoke(self, state, config=None):
+            return {
+                "messages": [
+                    AIMessage(
+                        content="tool decision",
+                        usage_metadata=UsageMetadata(
+                            input_tokens=10, output_tokens=4, total_tokens=14
+                        ),
+                    ),
+                    AIMessage(
+                        content="final answer",
+                        usage_metadata=UsageMetadata(
+                            input_tokens=6, output_tokens=3, total_tokens=9
+                        ),
+                    ),
+                ]
+            }
+
+    monkeypatch.setattr(
+        "app.services.chat_service.get_agent_graph", lambda: MultiCallGraph()
+    )
+
+    response = client.post(
+        "/api/v1/chat",
+        json={"message": "use a tool"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+
+    usage = db.query(TokenUsage).one()
+    assert (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens) == (16, 7, 23)
+
+
+def test_stream_persists_aggregated_usage_across_agent_calls(client, db, monkeypatch):
+    token = register_and_login(client, username="usagestream")
+
+    class MultiCallStreamGraph:
+        checkpointer = None
+
+        async def astream(self, state, config=None, stream_mode=None):
+            yield AIMessageChunk(
+                content="A",
+                usage_metadata=UsageMetadata(
+                    input_tokens=10, output_tokens=4, total_tokens=14
+                ),
+            ), {"langgraph_node": "agent"}
+            yield AIMessageChunk(
+                content="B",
+                usage_metadata=UsageMetadata(
+                    input_tokens=6, output_tokens=3, total_tokens=9
+                ),
+            ), {"langgraph_node": "agent"}
+
+    monkeypatch.setattr(
+        "app.routers.chat.get_agent_graph", lambda: MultiCallStreamGraph()
+    )
+
+    response = client.post(
+        "/api/v1/chat/stream",
+        json={"message": "use a tool"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+
+    usage = db.query(TokenUsage).one()
+    assert (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens) == (16, 7, 23)

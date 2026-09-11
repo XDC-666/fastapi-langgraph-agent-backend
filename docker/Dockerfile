@@ -12,10 +12,13 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 复制源码
+# 运行时源码、数据库迁移和同源演示前端
 COPY app ./app
+COPY alembic.ini ./alembic.ini
+COPY alembic ./alembic
+COPY frontend ./frontend
 
 EXPOSE 8000
 
-# 启动命令
+# Compose 会覆盖该命令并先执行 alembic upgrade head；单独 docker run 仍可启动 API。
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

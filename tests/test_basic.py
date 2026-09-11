@@ -12,3 +12,9 @@ def test_routes_registered():
     assert "/api/v1/chat/stream" in paths
     assert "/api/v1/conversations" in paths
     assert "/api/v1/knowledge/upload" in paths
+
+
+def test_frontend_is_served_by_fastapi(client):
+    response = client.get("/app/")
+    assert response.status_code == 200
+    assert "/api/v1" in response.text

@@ -3,9 +3,11 @@
 启动时会自动建表（开发环境）；生产建议改用 Alembic 迁移。
 """
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.database import Base, engine
@@ -59,11 +61,16 @@ app.include_router(knowledge.router)
 app.include_router(usage.router)
 app.include_router(health.router)
 
+# 由后端同源提供演示前端，避免直接 file:// 打开导致相对 API 地址与 CORS 失效。
+frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+app.mount("/app", StaticFiles(directory=frontend_dir, html=True), name="frontend")
+
 
 @app.get("/")
 def root():
     return {
         "message": f"{settings.PROJECT_NAME} 已启动",
         "docs": "/docs",
+        "frontend": "/app/",
         "health": f"{settings.API_V1_PREFIX}/health",
     }

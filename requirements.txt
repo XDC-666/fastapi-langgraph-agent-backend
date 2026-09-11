@@ -1,48 +1,48 @@
 # Web 框架
-fastapi>=0.115.0
-uvicorn[standard]>=0.32.0
-python-multipart>=0.0.12
+fastapi>=0.115.0,<1.0.0
+uvicorn[standard]>=0.32.0,<1.0.0
+python-multipart>=0.0.12,<1.0.0
 
 # 配置与数据校验
-pydantic>=2.9.0
-pydantic-settings>=2.5.0
+pydantic>=2.9.0,<3.0.0
+pydantic-settings>=2.5.0,<3.0.0
 
 # 数据库
-sqlalchemy>=2.0.35
-psycopg[binary]>=3.2.0
-alembic>=1.13.0
+sqlalchemy>=2.0.35,<2.1.0
+psycopg[binary]>=3.2.0,<4.0.0
+alembic>=1.13.0,<2.0.0
 
 # 认证
-python-jose[cryptography]>=3.3.0
+python-jose[cryptography]>=3.3.0,<4.0.0
 # 直接使用 bcrypt 官方 API：passlib 已停止维护，且与 bcrypt>=4.1 不兼容
-bcrypt>=4.1.0
+bcrypt>=4.1.0,<6.0.0
 
 # 缓存
-redis>=5.1.0
+redis>=5.1.0,<9.0.0
 
 # AI / Agent
 # 注意：项目直接 import 的包都显式声明，不依赖间接传递（否则干净环境会 import 失败）
-langchain>=0.3.0
-langchain-core>=0.3.0
-langchain-openai>=0.2.0
-langchain-chroma>=0.2.0
-langchain-text-splitters>=0.3.0
-langgraph>=0.2.0
+langchain>=0.3.0,<2.0.0
+langchain-core>=0.3.0,<2.0.0
+langchain-openai>=0.2.0,<2.0.0
+langchain-chroma>=0.2.0,<2.0.0
+langchain-text-splitters>=0.3.0,<2.0.0
+langgraph>=0.2.0,<2.0.0
 
 # 向量库（轻量，本地持久化）
-chromadb>=0.5.0
+chromadb>=0.5.0,<2.0.0
 
 # 文档解析
-pypdf>=4.3.0
-python-docx>=1.1.0
+pypdf>=4.3.0,<7.0.0
+python-docx>=1.1.0,<2.0.0
 
 # 类型（TypedDict 等在 Python 3.10/3.11 需从 typing_extensions 导入）
-typing-extensions>=4.12.0
+typing-extensions>=4.12.0,<5.0.0
 
 # HTTP 客户端
-httpx>=0.27.0
+httpx>=0.27.0,<1.0.0
 
 # 开发 / 测试
-pytest>=8.3.0
-pytest-asyncio>=0.24.0
-ruff>=0.6.0
+pytest>=8.3.0,<10.0.0
+pytest-asyncio>=0.24.0,<2.0.0
+ruff>=0.6.0,<1.0.0

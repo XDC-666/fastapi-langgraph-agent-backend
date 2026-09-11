@@ -10,12 +10,16 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models.message import Message
-from app.models.usage import TokenUsage
 from app.models.user import User
 from app.schemas.chat import ChatRequest, ChatResponse
-from app.services.chat_service import assemble_input, get_agent_graph, prepare_thread, run_chat
-from app.services.usage_service import extract_token_usage
+from app.services.chat_service import (
+    assemble_input,
+    get_agent_graph,
+    persist_turn,
+    prepare_thread,
+    run_chat,
+)
+from app.services.usage_service import extract_token_usage, merge_token_usage
 from app.utils.rate_limit import chat_rate_limit
 
 logger = logging.getLogger(__name__)
@@ -23,45 +27,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix=f"{settings.API_V1_PREFIX}", tags=["chat"])
 
 
-def persist_turn(
-    db: Session,
-    user_id: int,
-    conversation_id: int,
-    user_content: str,
-    assistant_content: str,
-    usage: tuple[int, int, int] | None = None,
-) -> None:
-    """把一轮问答写入数据库，并可选记录 token 用量。
-
-    同步 SQLAlchemy 会话不能直接 await，因此在 async 端点里由线程池调用本函数，
-    避免阻塞事件循环（这是 FastAPI 中同步 ORM 的标准处理方式）。
-    """
-    db.add(Message(conversation_id=conversation_id, role="user", content=user_content))
-    db.add(
-        Message(conversation_id=conversation_id, role="assistant", content=assistant_content)
-    )
-    if usage:
-        db.add(
-            TokenUsage(
-                user_id=user_id,
-                conversation_id=conversation_id,
-                model=settings.LLM_MODEL,
-                prompt_tokens=usage[0],
-                completion_tokens=usage[1],
-                total_tokens=usage[0] + usage[1],
-            )
-        )
-    db.commit()
-
-
 @router.post("/chat", response_model=ChatResponse, dependencies=[Depends(chat_rate_limit)])
-def chat(
+async def chat(
     payload: ChatRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """非流式对话：一次性返回完整回复。"""
-    conv_id, reply = run_chat(
+    conv_id, reply = await run_chat(
         db, current_user.id, payload.message, payload.conversation_id, payload.use_knowledge
     )
     if conv_id is None:
@@ -99,9 +72,10 @@ async def chat_stream(
             yield f"data: {json.dumps({'error': '会话不存在或无权访问'}, ensure_ascii=False)}\n\n"
             return
 
+        conv_id = conv.id
         graph = get_agent_graph()
         # 每轮重置该会话的 checkpointer 线程并用最近历史重新播种（有界、可恢复）
-        await run_in_threadpool(prepare_thread, graph, conv.id)
+        await run_in_threadpool(prepare_thread, graph, conv_id)
 
         full_reply = ""
         usage = None  # (prompt, completion, total)
@@ -120,17 +94,17 @@ async def chat_stream(
                 # 捕获 token 用量：流式时出现在最后一个 chunk 的 usage_metadata
                 chunk_usage = extract_token_usage(chunk)
                 if chunk_usage:
-                    usage = chunk_usage
-        except Exception as exc:  # noqa: BLE001
+                    usage = merge_token_usage(usage, chunk_usage)
+        except Exception:  # noqa: BLE001
             logger.exception("流式对话失败")
-            yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'error': '对话处理失败，请稍后重试'}, ensure_ascii=False)}\n\n"
             return
 
         # 流结束后落库（消息 + token 用量），同样放线程池
         await run_in_threadpool(
-            persist_turn, db, current_user.id, conv.id, payload.message, full_reply, usage
+            persist_turn, db, current_user.id, conv_id, payload.message, full_reply, usage
         )
-        done_payload = {"done": True, "conversation_id": conv.id}
+        done_payload = {"done": True, "conversation_id": conv_id}
         yield f"data: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
