@@ -1,4 +1,4 @@
-"""全局依赖：当前登录用户解析、数据库会话等。"""
+"""全局依赖：当前登录用户解析。"""
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -16,7 +16,7 @@ def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    """解析 Bearer Token，返回当前登录用户。失败抛出 401。"""
+    """解析 Bearer Token 并返回当前用户；无效凭证抛 401。"""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="无效或过期的凭证",
@@ -26,12 +26,12 @@ def get_current_user(
     if user_id is None:
         raise credentials_exception
     try:
-        parsed_user_id = int(user_id)
+        parsed_id = int(user_id)
     except (TypeError, ValueError):
         raise credentials_exception from None
-    if parsed_user_id <= 0:
+    if parsed_id <= 0:
         raise credentials_exception
-    user = db.get(User, parsed_user_id)
+    user = db.get(User, parsed_id)
     if user is None:
         raise credentials_exception
     return user

@@ -14,12 +14,12 @@ from app.services.usage_service import extract_token_usage
 
 logger = logging.getLogger(__name__)
 
-# 编译后的图做全局缓存，避免每次请求重复编译
+# 编译后的图全局缓存，避免每次请求重复编译
 _agent_graph = None
 
 
 def get_agent_graph():
-    """返回（并缓存）编译后的 Agent 图（已接入 checkpointer）。"""
+    """返回（并缓存）编译后的 Agent 图。"""
     global _agent_graph
     if _agent_graph is None:
         _agent_graph = build_graph(get_checkpointer())
@@ -43,36 +43,29 @@ def get_or_create_conversation(
 
 
 def build_history_messages(db, conversation_id: int) -> list:
-    """从数据库加载该会话最近的历史，转为 LangChain 消息对象。
+    """加载最近 MAX_HISTORY_MESSAGES 条历史，转为 LangChain 消息。
 
-    只取最近 `MAX_HISTORY_MESSAGES` 条：长对话若全量携带会迅速耗尽上下文窗口，
-    并显著抬高 token 成本。生产环境更严谨的做法是按 token 数裁剪或做摘要。
+    只取最近 N 条，避免长对话撑爆上下文窗口、推高 token 成本。
     """
-    limit = settings.MAX_HISTORY_MESSAGES
     rows = (
         db.query(Message)
         .filter(Message.conversation_id == conversation_id)
         .order_by(Message.id.desc())
-        .limit(limit)
+        .limit(settings.MAX_HISTORY_MESSAGES)
         .all()
     )
-    messages = []
-    # 上面按 id 倒序取，这里反转回正常时间顺序
-    for m in reversed(rows):
-        if m.role == "user":
-            messages.append(HumanMessage(content=m.content))
-        else:
-            messages.append(AIMessage(content=m.content))
-    return messages
+    # 按 id 倒序取出后反转回时间顺序
+    return [
+        HumanMessage(content=m.content) if m.role == "user" else AIMessage(content=m.content)
+        for m in reversed(rows)
+    ]
 
 
 def prepare_thread(graph, conversation_id: int) -> None:
-    """为「本轮对话」准备 checkpointer 线程。
+    """清空该会话的 checkpointer 线程，让每轮从 DB 裁剪后的历史重新开始。
 
-    以 conversation_id 作为 thread_id。由于 DB 才是权威持久化源且已做窗口裁剪，
-    这里每轮先把该线程清空、再用最近 N 条历史重新播种，使 checkpointer 长度有界，
-    避免长对话下 token 成本无限制增长（这是 Agent 工作记忆视图，而非审计源）。
-    不支持 delete_thread 的 checkpointer 则跳过（退化为纯追加）。
+    DB 是权威持久化源且已做窗口裁剪，这里清空可保证 checkpointer 长度有界；
+    不支持 delete_thread 的实现直接跳过（退化为追加）。
     """
     cp = getattr(graph, "checkpointer", None)
     if cp is not None and hasattr(cp, "delete_thread"):
@@ -87,7 +80,7 @@ def assemble_input(
 ):
     """整合会话、历史、用户消息，返回 (conversation, langchain_messages, config)。
 
-    config 携带 thread_id，供 LangGraph checkpointer 区分不同会话的状态。
+    config 携带 thread_id，供 checkpointer 区分会话状态。
     """
     conv = get_or_create_conversation(db, user_id, conversation_id)
     if conv is None:
@@ -97,7 +90,7 @@ def assemble_input(
     user_msg = HumanMessage(content=message)
 
     if use_knowledge:
-        # 延迟导入，避免循环依赖
+        # 延迟导入，避免与 knowledge_service 循环依赖
         from app.services.knowledge_service import retrieve_for_query
 
         context = retrieve_for_query(message, owner_id=user_id)
@@ -106,8 +99,7 @@ def assemble_input(
                 content=f"请结合以下知识回答用户问题：\n\n{context}\n\n用户问题：{message}"
             )
 
-    config = {"configurable": {"thread_id": str(conv.id)}}
-    return conv, history + [user_msg], config
+    return conv, history + [user_msg], {"configurable": {"thread_id": str(conv.id)}}
 
 
 def persist_turn(
@@ -118,7 +110,7 @@ def persist_turn(
     assistant_content: str,
     usage: tuple[int, int, int] | None = None,
 ) -> None:
-    """把一轮问答与聚合后的 token 用量一次性写入数据库。"""
+    """把一轮问答与聚合后的 token 用量写入数据库。"""
     db.add(Message(conversation_id=conversation_id, role="user", content=user_content))
     db.add(
         Message(
@@ -148,14 +140,9 @@ async def run_chat(
     conversation_id: int | None,
     use_knowledge: bool = False,
 ):
-    """非流式对话：异步调用 LangGraph，同步 ORM 工作放入线程池。"""
+    """非流式对话：同步 ORM 工作放线程池，返回 (conversation_id, reply)。"""
     conv, lang_messages, config = await run_in_threadpool(
-        assemble_input,
-        db,
-        user_id,
-        message,
-        conversation_id,
-        use_knowledge,
+        assemble_input, db, user_id, message, conversation_id, use_knowledge
     )
     if conv is None:
         return None, "会话不存在或无权访问"
@@ -166,16 +153,9 @@ async def run_chat(
     result = await graph.ainvoke({"messages": lang_messages}, config)
     reply = result["messages"][-1].content
 
-    # 一轮 Agent 可能因工具调用多次请求模型，因此聚合所有 AIMessage usage。
     usage = extract_token_usage(*result["messages"])
     await run_in_threadpool(
-        persist_turn,
-        db,
-        user_id,
-        conv_id,
-        message,
-        reply,
-        usage,
+        persist_turn, db, user_id, conv_id, message, reply, usage
     )
 
     logger.info("对话完成 conversation_id=%s user_id=%s", conv_id, user_id)

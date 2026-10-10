@@ -1,4 +1,4 @@
-"""用量统计路由：查看当前用户的 token 消耗与成本估算。"""
+"""用量统计路由。"""
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -18,9 +18,5 @@ def my_usage(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """返回当前登录用户的 token 用量汇总。
-
-    包含总 token、按模型拆分、按天拆分，以及已知模型的成本估算（美元）。
-    这是「AI 后端成本意识」的体现，便于发现异常刷量 / 优化 prompt 长度。
-    """
+    """返回当前用户的 token 用量汇总（总计 / 按模型 / 按天 / 成本估算）。"""
     return get_usage_summary(db, current_user.id, days=days)

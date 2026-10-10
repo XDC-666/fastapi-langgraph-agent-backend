@@ -13,6 +13,14 @@ from app.schemas.conversation import ConversationCreate, ConversationOut, Messag
 router = APIRouter(prefix=f"{settings.API_V1_PREFIX}/conversations", tags=["conversations"])
 
 
+def _get_own_conversation(db: Session, conversation_id: int, owner_id: int) -> Conversation:
+    """取会话并校验归属，不存在或越权抛 404。"""
+    conv = db.get(Conversation, conversation_id)
+    if conv is None or conv.owner_id != owner_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
+    return conv
+
+
 @router.post("", response_model=ConversationOut, status_code=status.HTTP_201_CREATED)
 def create_conversation(
     payload: ConversationCreate,
@@ -47,11 +55,8 @@ def get_conversation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取单个会话（校验归属）。"""
-    conv = db.get(Conversation, conversation_id)
-    if conv is None or conv.owner_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
-    return conv
+    """获取单个会话。"""
+    return _get_own_conversation(db, conversation_id, current_user.id)
 
 
 @router.get("/{conversation_id}/messages", response_model=list[MessageOut])
@@ -60,10 +65,8 @@ def get_messages(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取会话的全部消息记录。"""
-    conv = db.get(Conversation, conversation_id)
-    if conv is None or conv.owner_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
+    """获取会话的全部消息。"""
+    _get_own_conversation(db, conversation_id, current_user.id)
     return (
         db.query(Message)
         .filter(Message.conversation_id == conversation_id)
@@ -78,9 +81,7 @@ def delete_conversation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """删除会话（级联删除其消息）。"""
-    conv = db.get(Conversation, conversation_id)
-    if conv is None or conv.owner_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
+    """删除会话（级联删除消息）。"""
+    conv = _get_own_conversation(db, conversation_id, current_user.id)
     db.delete(conv)
     db.commit()

@@ -1,7 +1,6 @@
-"""Agent 可调用工具。
+"""Agent 工具：计算器（AST 安全求值）与模拟搜索。
 
-工具是 Agent 的「能力扩展」：模型在需要时决定调用哪个工具，并把结果回填给模型。
-这里给出两个最小示例（计算器、模拟搜索），真实项目可替换为 SerpAPI / 业务 API。
+真实项目可将 search_web 替换为 SerpAPI / 业务 API。
 """
 import ast
 import operator
@@ -22,7 +21,7 @@ _ALLOWED_UNARYOPS = {
     ast.UAdd: operator.pos,
     ast.USub: operator.neg,
 }
-# 指数上限，防止 2**99999999 之类的指数爆炸导致 CPU / 内存耗尽（DoS）
+# 指数/底数上限，防止 2**99999999 之类的计算把 CPU / 内存耗尽
 _MAX_EXP = 1000
 _MAX_BASE = 1_000_000
 
@@ -40,9 +39,8 @@ def _safe_eval(node: ast.AST):
             raise ValueError("不支持的运算符")
         left = _safe_eval(node.left)
         right = _safe_eval(node.right)
-        if op_type is ast.Pow:
-            if abs(right) > _MAX_EXP or abs(left) > _MAX_BASE:
-                raise ValueError("指数或底数过大，已拒绝计算")
+        if op_type is ast.Pow and (abs(right) > _MAX_EXP or abs(left) > _MAX_BASE):
+            raise ValueError("指数或底数过大，已拒绝计算")
         if op_type in (ast.Div, ast.Mod, ast.FloorDiv) and right == 0:
             raise ValueError("除数不能为零")
         return _ALLOWED_BINOPS[op_type](left, right)
@@ -60,9 +58,7 @@ def calculator(expression: str) -> str:
     仅支持数字与 + - * / ( ) ^ 运算符，使用 AST 安全求值（无 eval / exec）。
     """
     try:
-        tree = ast.parse(expression, mode="eval")
-        result = _safe_eval(tree)
-        return f"计算结果：{result}"
+        return f"计算结果：{_safe_eval(ast.parse(expression, mode='eval'))}"
     except SyntaxError:
         return "表达式格式不合法，仅支持数字与 + - * / ( ) ^ 运算符"
     except Exception as exc:  # noqa: BLE001

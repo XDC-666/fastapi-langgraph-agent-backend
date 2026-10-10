@@ -42,24 +42,22 @@ async def chat(
     return ChatResponse(conversation_id=conv_id, reply=reply)
 
 
-@router.post(
-    "/chat/stream", dependencies=[Depends(chat_rate_limit)]
-)
+@router.post("/chat/stream", dependencies=[Depends(chat_rate_limit)])
 async def chat_stream(
     payload: ChatRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """流式对话：以 SSE 形式逐 token 返回。
+    """流式对话：以 SSE 逐 token 返回。
 
-    返回的事件格式：
+    事件格式：
       data: {"delta": "文本片段"}
       data: {"done": true, "conversation_id": 1}
       data: {"error": "错误信息"}
     """
 
     async def event_generator():
-        # 同步 ORM 会阻塞事件循环，这里放到线程池执行，保证流式吞吐不受影响
+        # 同步 ORM 放线程池，避免阻塞事件循环
         conv, lang_messages, config = await run_in_threadpool(
             assemble_input,
             db,
@@ -74,34 +72,33 @@ async def chat_stream(
 
         conv_id = conv.id
         graph = get_agent_graph()
-        # 每轮重置该会话的 checkpointer 线程并用最近历史重新播种（有界、可恢复）
         await run_in_threadpool(prepare_thread, graph, conv_id)
 
         full_reply = ""
         usage = None  # (prompt, completion, total)
         try:
-            # stream_mode="messages" 会产出 token 级增量 (chunk, metadata)
+            # stream_mode="messages" 产出 token 级增量 (chunk, metadata)
             async for chunk, metadata in graph.astream(
                 {"messages": lang_messages}, config, stream_mode="messages"
             ):
-                # 只取 agent 节点产生的文本增量，过滤工具调用等中间产物
+                # 只透传 agent 节点的文本增量，过滤工具调用等中间产物
                 if metadata.get("langgraph_node") != "agent":
                     continue
                 text = getattr(chunk, "content", None)
                 if isinstance(text, str) and text:
                     full_reply += text
                     yield f"data: {json.dumps({'delta': text}, ensure_ascii=False)}\n\n"
-                # 捕获 token 用量：流式时出现在最后一个 chunk 的 usage_metadata
                 chunk_usage = extract_token_usage(chunk)
                 if chunk_usage:
                     usage = merge_token_usage(usage, chunk_usage)
         except Exception:  # noqa: BLE001
+            # 不向前端泄露内部错误细节
             logger.exception("流式对话失败")
-            error_payload = {"error": "对话处理失败，请稍后重试"}
-            yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
+            yield "data: " + json.dumps(
+                {"error": "对话处理失败，请稍后重试"}, ensure_ascii=False
+            ) + "\n\n"
             return
 
-        # 流结束后落库（消息 + token 用量），同样放线程池
         await run_in_threadpool(
             persist_turn, db, current_user.id, conv_id, payload.message, full_reply, usage
         )

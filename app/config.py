@@ -1,7 +1,4 @@
-"""应用配置：从环境变量或 .env 文件读取。
-
-使用 pydantic-settings，所有配置集中在一处，方便管理与类型校验。
-"""
+"""应用配置：从环境变量或 .env 读取，pydantic-settings 统一管理与校验。"""
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -19,23 +16,20 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "fastapi-langgraph-agent-backend"
     API_V1_PREFIX: str = "/api/v1"
     DEBUG: bool = False
-
-    # 允许跨域的前端源（逗号分隔）；生产环境务必改为你的前端域名
+    # 允许跨域的前端源（逗号分隔），生产环境务必改为实际前端域名
     CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     # ===== 安全 =====
     SECRET_KEY: str = "change-me-to-a-random-secret-string"
-    # 设为 true 时，若 SECRET_KEY 仍为默认占位值则启动报错（防止生产用弱密钥）
+    # 设为 true 时，SECRET_KEY 仍为默认占位值则启动报错（防生产用弱密钥）
     REQUIRE_SECRET_KEY: bool = False
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 天
 
     # ===== 数据库 =====
     DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@localhost:5432/agentdb"
-
-    # 启动是否自动建表。开发/测试环境设为 true 用 create_all 最省事；
-    # 生产环境请设为 false，并改用 Alembic 迁移（alembic upgrade head），
-    # 否则改表结构时 create_all 不会去 ALTER 已有表，易引发字段不一致。
+    # 开发环境用 create_all 省事；生产设为 false 改用 Alembic 迁移
+    # （create_all 不会 ALTER 已有表，改表结构时会字段不一致）
     AUTO_CREATE_TABLES: bool = True
 
     # ===== Redis =====
@@ -46,34 +40,28 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     LLM_MODEL: str = "gpt-4o-mini"
 
-    # ===== 对话 =====
-    # 每次请求携带的历史消息条数上限（防止长对话导致 token 超限 / 成本失控）
+    # ===== 对话 / Checkpointer =====
+    # 每次请求携带的历史消息条数上限（防长对话 token 超限）
     MAX_HISTORY_MESSAGES: int = 20
-
-    # ===== LangGraph Checkpointer =====
-    # 留空：使用内存版 MemorySaver（随进程重启丢失，适合开发 / 单实例演示）。
-    # 设为 sqlite:///./data/checkpoints.sqlite 可持久化 Agent 工作记忆（跨重启可恢复），
-    # 需要先额外安装：pip install langgraph-checkpoint-sqlite
+    # 留空用内存版 MemorySaver（重启即失）；设 sqlite:///... 可持久化，
+    # 需额外安装 langgraph-checkpoint-sqlite
     CHECKPOINTER_URI: str = ""
 
     # ===== Token 用量统计 =====
-    # 是否在 /usage 接口给已知模型估算成本（美元）。未知模型返回 null。
+    # /usage 接口是否给已知模型估算成本（美元）
     TOKEN_USAGE_COST_ENABLED: bool = True
 
     # ===== 登录失败锁定 =====
-    # 同一账号（按登录标识）在窗口内失败达到上限即锁定；Redis 不可用时自动降级（不锁定）。
     LOGIN_MAX_FAILED_ATTEMPTS: int = 5
     LOGIN_LOCKOUT_MINUTES: int = 15
     LOGIN_LOCKOUT_WINDOW_MINUTES: int = 15
 
-    # ===== 限流（基于 Redis；Redis 不可用时自动降级放行）=====
+    # ===== 限流（基于 Redis，不可用时降级放行）=====
     RATE_LIMIT_ENABLED: bool = True
-    RATE_LIMIT_LOGIN_PER_MINUTE: int = 10  # 登录按 IP，防暴力破解
-    RATE_LIMIT_CHAT_PER_MINUTE: int = 30  # 对话按用户，防刷接口导致 token 成本失控
-
-    # 是否部署在可信反向代理（Nginx / 负载均衡）之后。
-    # True：_client_ip 取 X-Forwarded-For 最左（原始客户端）地址；
-    # False（默认，安全）：忽略 X-Forwarded-For，防止伪造该头绕过限流或把限流嫁祸他人。
+    RATE_LIMIT_LOGIN_PER_MINUTE: int = 10  # 登录按 IP，防爆破
+    RATE_LIMIT_CHAT_PER_MINUTE: int = 30   # 对话按用户，防 token 成本失控
+    # 部署在可信反向代理之后时设为 True（取 X-Forwarded-For 原始客户端 IP）；
+    # 默认 False，忽略该头以防伪造绕过限流
     TRUST_PROXY: bool = False
 
     # ===== 嵌入模型 =====
@@ -81,10 +69,8 @@ class Settings(BaseSettings):
     EMBEDDING_DIM: int = 1536
 
     # ===== 知识库 =====
-    # 单文件最大 10 MiB；上传路由只会读取 max + 1 字节用于判定超限。
-    MAX_KNOWLEDGE_UPLOAD_BYTES: int = 10 * 1024 * 1024
-    # 相似度检索结果上限，防止异常 k 放大向量库与响应开销。
-    MAX_KNOWLEDGE_K: int = 10
+    MAX_KNOWLEDGE_UPLOAD_BYTES: int = 10 * 1024 * 1024  # 单文件上限 10 MiB
+    MAX_KNOWLEDGE_K: int = 10  # 相似度检索结果上限
 
     # ===== 本地数据目录 =====
     CHROMA_PERSIST_DIR: str = "./data/chroma"
@@ -95,7 +81,6 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """返回全局单例配置。"""
     s = Settings()
-    # 生产环境强制要求自定义 SECRET_KEY，避免 JWT 被已知默认密钥伪造
     if s.REQUIRE_SECRET_KEY and s.SECRET_KEY == "change-me-to-a-random-secret-string":
         raise ValueError(
             "REQUIRE_SECRET_KEY=true 但 SECRET_KEY 仍为默认占位值，"
