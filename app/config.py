@@ -58,6 +58,15 @@ class Settings(BaseSettings):
     REDIS_CONNECT_TIMEOUT_SECONDS: float = 0.5
     REDIS_SOCKET_TIMEOUT_SECONDS: float = 0.5
 
+    # ===== Redis 熔断 =====
+    # 光有超时还不够：超时的代价是每个请求都要付一次。Redis 持续不可用时，
+    # 一个登录会连锁触发多次 Redis 调用，每次都付满超时，延迟被成倍放大。
+    # 连续失败达到阈值后熔断一段时间，期间直接短路返回降级值，
+    # 冷却结束后放行一次真实调用做半开探测，成功即闭合。
+    REDIS_CIRCUIT_ENABLED: bool = True
+    REDIS_CIRCUIT_FAILURE_THRESHOLD: int = 3      # 连续失败几次后打开
+    REDIS_CIRCUIT_COOLDOWN_SECONDS: float = 30.0  # 熔断持续时间（秒）
+
     # ===== 登录失败锁定 =====
     LOGIN_MAX_FAILED_ATTEMPTS: int = 5
     LOGIN_LOCKOUT_MINUTES: int = 15

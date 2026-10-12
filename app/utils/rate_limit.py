@@ -9,22 +9,26 @@ from fastapi import Depends, HTTPException, Request, status
 from app.config import settings
 from app.dependencies import get_current_user
 from app.models.user import User
-from app.utils.cache import redis_client
+from app.utils.cache import redis_call, redis_client
 
 logger = logging.getLogger(__name__)
 
 
 async def is_allowed(key: str, limit: int, window_seconds: int) -> bool:
-    """判断 key 在当前窗口内是否还有额度；Redis 异常时放行。"""
-    try:
+    """判断 key 在当前窗口内是否还有额度；Redis 异常时放行。
+
+    整组操作（INCR + EXPIRE）作为一个整体丢给熔断层：失败只记账一次，
+    不会因为一次语义操作里有两个命令就把失败计数翻倍。
+    """
+
+    async def _op() -> bool:
         count = await redis_client.incr(key)
         if count == 1:
             # 仅首次计数设置过期，保证是固定窗口而非不断续期
             await redis_client.expire(key, window_seconds)
         return count <= limit
-    except Exception:  # noqa: BLE001
-        logger.warning("限流组件不可用（Redis 异常），本次请求放行 key=%s", key)
-        return True
+
+    return await redis_call(f"rate_limit:{key}", _op, fallback=True)
 
 
 def _client_ip(request: Request) -> str:
