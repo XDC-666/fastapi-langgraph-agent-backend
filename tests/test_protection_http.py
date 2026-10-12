@@ -117,7 +117,9 @@ def test_other_users_conversation_is_404_not_403(client):
     bob = _login_and_token(client, "bobby", "BobbyPass123!")
 
     conv = client.post(
-        "/api/v1/conversations", json={"title": "私密会话"}, headers={"Authorization": f"Bearer {alice}"}
+        "/api/v1/conversations",
+        json={"title": "私密会话"},
+        headers={"Authorization": f"Bearer {alice}"},
     ).json()
 
     bob_auth = {"Authorization": f"Bearer {bob}"}
