@@ -1,8 +1,9 @@
 """RAG 知识库：文档解析 → 切分 → 向量化 → 相似度检索。
 
-使用 Chroma 作为轻量本地向量库，OpenAI Embeddings 做向量化。
-嵌入模型与向量库均懒加载，避免在缺少 API Key 时（如运行测试）就崩溃。
+用 Chroma 做本地向量库，OpenAI Embeddings 做向量化；
+两者均懒加载，缺少 API Key 时（如跑测试）不会在导入期崩溃。
 """
+from io import BytesIO
 from pathlib import Path
 
 from langchain_chroma import Chroma
@@ -11,18 +12,16 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.config import settings
 
-# 确保本地数据目录存在
 Path(settings.CHROMA_PERSIST_DIR).mkdir(parents=True, exist_ok=True)
 Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 
-# 文本切分器（不依赖 API Key，可顶层创建）
+# 文本切分器不依赖 API Key，可顶层创建
 splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
-# 懒加载缓存
+SUPPORTED_EXTENSIONS = frozenset({"txt", "md", "pdf", "docx"})
+
 _embeddings = None
 _vector_store = None
-
-SUPPORTED_EXTENSIONS = frozenset({"txt", "md", "pdf", "docx"})
 
 
 def get_embeddings():
@@ -52,7 +51,7 @@ def get_vector_store():
 
 
 def validate_filename(filename: str) -> str:
-    """校验知识库文件名并返回小写扩展名。"""
+    """校验文件名并返回小写扩展名，不支持的类型抛 ValueError。"""
     if not filename or "." not in filename:
         raise ValueError("不支持的文件类型，仅支持 txt / md / pdf / docx")
     ext = filename.rsplit(".", 1)[-1].lower()
@@ -67,24 +66,20 @@ def parse_file(filename: str, content: bytes) -> str:
     if ext in ("txt", "md"):
         return content.decode("utf-8", errors="ignore")
     if ext == "pdf":
-        from io import BytesIO
-
         from pypdf import PdfReader
 
         reader = PdfReader(BytesIO(content))
         return "\n".join((page.extract_text() or "") for page in reader.pages)
     if ext == "docx":
-        from io import BytesIO
-
         from docx import Document
 
         doc = Document(BytesIO(content))
         return "\n".join(p.text for p in doc.paragraphs)
-    raise AssertionError("validated extension must be supported")
+    raise ValueError(f"不支持的文件类型：{ext}")
 
 
 def add_document(filename: str, content: bytes, owner_id: int) -> int:
-    """解析并替换用户同名文档的向量块，返回新切分块数量。"""
+    """解析文档并替换该用户同名文档的向量块，返回切分块数量。"""
     text = parse_file(filename, content)
     if not text.strip():
         raise ValueError("文档内容为空或无法提取文本")
@@ -93,8 +88,8 @@ def add_document(filename: str, content: bytes, owner_id: int) -> int:
     if not chunks:
         raise ValueError("文档内容为空或无法切分出有效文本")
 
+    # 先按 租户+文件名 清理旧块：固定 chunk id 在块数变少时会遗留旧数据
     vector_store = get_vector_store()
-    # 固定 chunk id 会在新文档块数减少时遗留旧块；先按租户+文件名清理。
     vector_store.delete(
         where={
             "$and": [
@@ -104,14 +99,16 @@ def add_document(filename: str, content: bytes, owner_id: int) -> int:
         }
     )
 
-    metadatas = [{"source": filename, "owner_id": owner_id} for _ in chunks]
-    ids = [f"{owner_id}-{filename}-{i}" for i in range(len(chunks))]
-    vector_store.add_texts(chunks, metadatas=metadatas, ids=ids)
+    vector_store.add_texts(
+        chunks,
+        metadatas=[{"source": filename, "owner_id": owner_id} for _ in chunks],
+        ids=[f"{owner_id}-{filename}-{i}" for i in range(len(chunks))],
+    )
     return len(chunks)
 
 
 def retrieve_for_query(query: str, owner_id: int, k: int = 3) -> str:
-    """检索当前 owner 的相关知识片段；不提供无租户检索入口。"""
+    """检索当前用户的知识片段；强制按 owner_id 隔离，不提供跨租户检索。"""
     if not isinstance(owner_id, int) or isinstance(owner_id, bool) or owner_id <= 0:
         raise ValueError("owner_id 必须是有效的正整数")
     if not query.strip():

@@ -2,6 +2,10 @@
 # 用法：
 #   cp .env.example .env   # 填入 OPENAI_API_KEY 等
 #   docker compose up --build
+#
+# 安全说明：本文件面向**本机开发**，所有端口仅绑定 127.0.0.1。
+# 部署到服务器前必须：① 改掉下面的 postgres/postgres 默认弱口令；
+# ② 保持回环绑定，由 Nginx / 负载均衡反向代理对外；③ 不要直接暴露 5432 / 6379。
 services:
   postgres:
     image: postgres:16
@@ -10,7 +14,9 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: agentdb
     ports:
-      - "5432:5432"
+      # 仅绑定回环地址：默认不把数据库暴露到宿主机所有网卡。
+      # 确需局域网访问时，再显式改为绑定全部网卡（把主机段写成通配地址）。
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -22,7 +28,8 @@ services:
   redis:
     image: redis:7
     ports:
-      - "6379:6379"
+      # Redis 默认无密码，绝不能暴露到公网；仅回环可达。
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -34,7 +41,8 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     ports:
-      - "8000:8000"
+      # 生产部署请置于 Nginx / 负载均衡之后，不要把 API 直接暴露到公网。
+      - "127.0.0.1:8000:8000"
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/agentdb
       REDIS_URL: redis://redis:6379/0

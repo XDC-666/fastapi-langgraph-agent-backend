@@ -1,10 +1,7 @@
 """基于 Redis 的登录失败锁定（防暴力破解）。
 
-设计要点：
-- 按登录标识（用户名/邮箱）计数失败次数，落在 `LOGIN_LOCKOUT_WINDOW_MINUTES` 窗口内。
-- 达到 `LOGIN_MAX_FAILED_ATTEMPTS` 即在 Redis 写入带 TTL 的锁键，锁定 `LOGIN_LOCKOUT_MINUTES` 分钟。
-- **降级放行**：Redis 不可用时跳过锁定逻辑，绝不因防护组件故障导致用户无法登录。
-- 登录成功时清除该标识的失败计数与锁，避免「被锁定后改对密码仍被拦」。
+按登录标识在窗口内累计失败次数，达到上限即写入带 TTL 的锁键；
+Redis 不可用时跳过锁定，登录成功后清除计数与锁。
 """
 import logging
 
@@ -23,7 +20,7 @@ def _lock_key(identifier: str) -> str:
 
 
 async def is_locked(identifier: str) -> int | None:
-    """返回剩余锁定秒数；未锁定返回 None（Redis 异常同样返回 None = 放行）。"""
+    """返回剩余锁定秒数；未锁定或 Redis 异常返回 None（放行）。"""
     try:
         ttl = await redis_client.ttl(_lock_key(identifier))
         return ttl if ttl and ttl > 0 else None
@@ -33,7 +30,7 @@ async def is_locked(identifier: str) -> int | None:
 
 
 async def record_failure(identifier: str, ip: str) -> None:
-    """记录一次失败登录，必要时触发锁定。"""
+    """记录一次失败登录，达到上限时触发锁定。"""
     try:
         count = await redis_client.incr(_fail_key(identifier))
         if count == 1:
@@ -46,10 +43,7 @@ async def record_failure(identifier: str, ip: str) -> None:
             )
             logger.warning(
                 "账号 %s 因连续 %d 次登录失败被锁定 %d 分钟（ip=%s）",
-                identifier,
-                count,
-                settings.LOGIN_LOCKOUT_MINUTES,
-                ip,
+                identifier, count, settings.LOGIN_LOCKOUT_MINUTES, ip,
             )
     except Exception:  # noqa: BLE001
         logger.warning("记录登录失败计数失败（Redis 异常），跳过 identifier=%s", identifier)
@@ -58,7 +52,6 @@ async def record_failure(identifier: str, ip: str) -> None:
 async def clear_lock(identifier: str) -> None:
     """登录成功后清除失败计数与锁。"""
     try:
-        await redis_client.delete(_fail_key(identifier))
-        await redis_client.delete(_lock_key(identifier))
+        await redis_client.delete(_fail_key(identifier), _lock_key(identifier))
     except Exception:  # noqa: BLE001
         logger.warning("清除登录锁定失败（Redis 异常），跳过 identifier=%s", identifier)

@@ -1,16 +1,7 @@
-"""安全工具：密码哈希、JWT 生成与解析。
-
-- 密码使用 bcrypt 哈希，杜绝明文存储。
-- JWT 用于无状态登录认证。
-
-说明：早期版本使用 passlib 做哈希，但 passlib 已停止维护且与 bcrypt>=4.1 不兼容
-（加载后端时报 `module 'bcrypt' has no attribute '__about__'`，导致注册直接失败）。
-这里改为直接调用 bcrypt 官方 API，去掉这层废弃依赖。
-"""
+"""安全工具：bcrypt 密码哈希、JWT 生成与解析。"""
 import base64
 import hashlib
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 import bcrypt
 from jose import JWTError, jwt
@@ -19,11 +10,7 @@ from app.config import settings
 
 
 def _prehash(password: str) -> bytes:
-    """先把密码做一次 SHA-256 再 base64。
-
-    bcrypt 只处理前 72 字节，超长密码会被静默截断。先哈希成固定 44 字节，
-    既规避长度限制，也避免长密码在截断后强度下降。
-    """
+    """先做 SHA-256 再 base64，规避 bcrypt 只处理前 72 字节的截断问题。"""
     digest = hashlib.sha256(password.encode("utf-8")).digest()
     return base64.b64encode(digest)
 
@@ -41,17 +28,20 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
 
 
-def create_access_token(subject: str | int, expires_delta: Optional[timedelta] = None) -> str:
-    """生成 JWT 访问令牌。subject 通常放用户 id。"""
+def create_access_token(subject: str | int, expires_delta: timedelta | None = None) -> str:
+    """生成 JWT，subject 通常是用户 id。"""
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    to_encode = {"sub": str(subject), "exp": expire}
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return jwt.encode(
+        {"sub": str(subject), "exp": expire},
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
+    )
 
 
-def decode_access_token(token: str) -> Optional[str]:
-    """解析 JWT，返回 subject（用户 id 字符串）；失败返回 None。"""
+def decode_access_token(token: str) -> str | None:
+    """解析 JWT，返回 subject；失败返回 None。"""
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         return payload.get("sub")
