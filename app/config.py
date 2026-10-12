@@ -60,6 +60,13 @@ class Settings(BaseSettings):
     # 是否在 /usage 接口给已知模型估算成本（美元）。未知模型返回 null。
     TOKEN_USAGE_COST_ENABLED: bool = True
 
+    # ===== Redis =====
+    # 连接 / 读写超时（秒）。Redis 是「辅助组件」（限流、锁定、缓存），不可用时代码会降级放行；
+    # 但如果不设超时，一次调用会等到底层 TCP 超时（Linux 默认可达 2 分钟量级），
+    # 导致认证等接口从毫秒级退化到秒级甚至更久 —— 降级不等于可以不设超时。
+    REDIS_CONNECT_TIMEOUT_SECONDS: float = 0.5
+    REDIS_SOCKET_TIMEOUT_SECONDS: float = 0.5
+
     # ===== 登录失败锁定 =====
     # 同一账号（按登录标识）在窗口内失败达到上限即锁定；Redis 不可用时自动降级（不锁定）。
     LOGIN_MAX_FAILED_ATTEMPTS: int = 5
