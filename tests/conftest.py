@@ -59,6 +59,24 @@ def client(db, monkeypatch):
     app.dependency_overrides.clear()
 
 
+@pytest.fixture()
+def redis_closed():
+    """宣告「本用例 Redis 可用」，使用前把熔断器复位。
+
+    熔断状态是进程级共享的 —— 这正是无 Redis 环境下整套测试能跑快的来源。
+    但凡某个用例注入了**可用的** Redis 替身来验证限流 / 锁定逻辑，就必须在本
+    fixture 下运行：否则会被上一轮累积的失败计数短路掉，替身根本不被调用，
+    用例退化成「永远放行」的假阳性（断言 429 / False 反而失败）。
+
+    注意：故意做成非 autouse。全局自动复位会让套件耗时退回熔断前的水平。
+    """
+    from app.utils.cache import breaker
+
+    breaker.reset()
+    yield breaker
+    breaker.reset()
+
+
 class FakeGraph:
     """假的 LangGraph 图：模拟 Agent 产出，避免调用真实大模型。"""
 

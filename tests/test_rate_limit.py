@@ -9,7 +9,7 @@ from app.utils import rate_limit
 
 
 @pytest.mark.asyncio
-async def test_is_allowed_passes_when_redis_down(monkeypatch):
+async def test_is_allowed_passes_when_redis_down(monkeypatch, redis_closed):
     """Redis 抛异常时应降级放行，而不是让请求失败。"""
 
     async def _boom(*args, **kwargs):
@@ -20,7 +20,7 @@ async def test_is_allowed_passes_when_redis_down(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_is_allowed_blocks_after_limit(monkeypatch):
+async def test_is_allowed_blocks_after_limit(monkeypatch, redis_closed):
     """超过额度后应拒绝。用内存计数器模拟 Redis INCR。"""
     store = {}
 

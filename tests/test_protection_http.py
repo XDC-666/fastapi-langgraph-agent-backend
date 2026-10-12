@@ -32,7 +32,8 @@ def _login_and_token(client, username, password):
     return r.json()["access_token"]
 
 
-def test_chat_rate_limit_returns_429_over_http(client, fake_graph, monkeypatch):
+def test_chat_rate_limit_returns_429_over_http(client, fake_graph, monkeypatch,
+                                               redis_closed):
     """对话配额用尽后，HTTP 层必须真的返回 429（而不是 200 或 500）。"""
     fake = FakeRedis()
     monkeypatch.setattr(rate_limit, "redis_client", fake)
@@ -53,7 +54,7 @@ def test_chat_rate_limit_returns_429_over_http(client, fake_graph, monkeypatch):
     assert any(k.startswith("rl:chat:") for k in fake.keys_captured)
 
 
-def test_login_rate_limit_returns_429_over_http(client, monkeypatch):
+def test_login_rate_limit_returns_429_over_http(client, monkeypatch, redis_closed):
     """登录配额用尽后返回 429（按 IP，防暴力破解）。"""
     fake = FakeRedis()
     monkeypatch.setattr(rate_limit, "redis_client", fake)
